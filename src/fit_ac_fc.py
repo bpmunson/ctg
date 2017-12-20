@@ -34,27 +34,23 @@ def load_timepoint_counts(fn, sep="\s+"):
     return tps
 
 def convert_abundance_thresholds(df, sep="_"):
-    #print(df)
+    df.index = pd.MultiIndex.from_tuples(
+        [(int(i.split('_')[2]), int(i.split('_')[1][1:])) for i in df.index],
+        names=['reps', 'time'])
 
-    tmp = pd.DataFrame([i.split(sep)[-2:] for i in df.index], \
-                        columns=['_time', '_reps'], \
-                        index=df.index)
-    tmp = pd.concat([df, tmp], axis=1)
-    tmp = tmp.pivot(index='_time', columns='_reps', values='log2CountsThresh')
-
-    return tmp.loc[sorted(tmp.index, key=lambda x:int(x[1:]))]
+    return df.T
 
 def convert_timepoint_counts(df):
-    data = df.iloc[:, 5:].T
+    data = df.iloc[:, 5:]
+    names = df.iloc[:,:5]
 
-    tmp = pd.DataFrame([i.split('_')[-2:] for i in data.index], \
-                        columns=['_time', '_reps'], \
-                        index=data.index)
+    idx = pd.MultiIndex.from_tuples(
+        [(int(i.split('_')[2]), int(i.split('_')[1][1:])) for i in data.columns],
+        names=['reps', 'time'])
 
-    tmp = pd.concat([data, tmp], axis=1)
-    tmp = tmp.set_index(['_reps', '_time']).T
+    data.columns = idx
 
-    return tmp
+    return data, names
 
 if __name__ == "__main__":
     from config import config
@@ -66,4 +62,4 @@ if __name__ == "__main__":
 
     #print(convert_abundance_thresholds(ab))
 
-    convert_timepoint_counts(tps)
+    print(convert_timepoint_counts(tps))
