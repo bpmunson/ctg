@@ -6,9 +6,10 @@ This is a rewrite of the irls function from Roman/Amanda's CTG pacakge.
 Ported to pure python.
 
 Todo:
-	method documentation
+    method documentation
     verify biweight
     unit tests
+    change ag to float but keep options for number of standard devaitions away
 """
 
 import os
@@ -21,15 +22,15 @@ def load_construct_fitnesses(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed constuct fitnesses from a csv file
     """
     
-    fc = pd.read_csv(fp, sep=sep, index_col=index_col, header=header)
-    
+    fc = np.loadtxt(fp, delimiter=sep)
+
     return fc
 
 def load_initial_weights(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed weights for construct inclusion in fitting.
     """
     
-    w0 = pd.read_csv(fp, sep=sep, index_col=index_col, header=header)
+    w0 = np.loadtxt(fp, delimiter=sep)
     
     return w0
 
@@ -38,7 +39,7 @@ def filter_weights(w, w0):
     """
     
     # replace the diagonal (ie same gene on both probes ) with zero ... or do not include
-    np.fill_diagonal(w.values, 0)
+    np.fill_diagonal(w, 0)
 
     # zero out previous determined bad constructs 
     w = w * w0
@@ -50,12 +51,10 @@ def biweight(eij, ag=2, expressed=None):
     """
     if expressed is None:
         # create a mask of all true
-        expressed = pd.DataFrame(np.ones(eij.shape, dtype=bool),
-                                 columns = eij.columns,
-                                 index = eij.index)
+        expressed = np.ones(eij.shape).astype(np.bool)
         
     # calculate standard deviation of pi scores (residuals) for expressed constructs
-    sd = eij[expressed].stack().std()
+    sd = eij[expressed].std()
     
     # calculate new weights, aparently using a modified biweight model 
     # TODO, why not multiply by eij in front?  
@@ -65,7 +64,9 @@ def biweight(eij, ag=2, expressed=None):
     w[abs(eij)>(ag*sd)]=0
 
     return w
-        
+
+
+
 def construct_system_ab(fc, w, err=1e-6):
     """ Construct the system of equations to solve
     """
@@ -76,16 +77,16 @@ def construct_system_ab(fc, w, err=1e-6):
     # replace diagnol with total number of constructs used for the given probe,
     # plus some small error term
     for i in range(n):
-        A.iloc[i,i] = w.iloc[:,i].sum()+err
+        A[i,i] = w[:,i].sum()+err
 
     # get new construct fitnesses to fit against
     # initialize a vector with sum of all construct fitnesses for every probe
     # if the assumption of a normally distributed genetic interactions about zero is met 
     # this will be 0 or close to it ... TODO: should it be the mean? 
-    b = np.array((fc*w).sum())
+    b = np.array((fc*w).sum(axis=0))
     
     return A, b
-   
+
 def solve_iteration(A, b):
     """ 
     Solves for the individual probe fitnesses
@@ -97,33 +98,33 @@ def solve_iteration(A, b):
     # init probe estimates
     n = A.shape[0]
     fij = np.zeros((n,n))
-    
+
     # fill expected fitness and pi score matrices
     for i in range(n):
         for j in range(i+1,n):
             fij[i,j] = x[i]+x[j]
-    
+
     # convert to a pandas data frame
-    fij = pd.DataFrame(fij, columns = A.columns, index = A.index)
+    #fij = pd.DataFrame(fij, columns = A.columns, index = A.index)
 
         
     # make the expected fitness matrix symmetric
-    fij = fij + fij.transpose()
+    fij = fij + np.transpose(fij)
     eij = fc - fij
-    
+
     return x, fij, eij
 
 def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
     """ The iterative least squares fitting function of single gene fitnesses
 
     Args:
-        fc_0 (matrix):  A NxN matrix of observed fitnesses for each construct.
+        fc (matrix):  A NxN matrix of observed fitnesses for each construct.
                         N is the number of probes.
                         Columns and rows are individual probes and the the value for [n,m] is the observed fitness of
                         the dual mutant comprised of probe m and probe n.  This fitness is the slope of a regression 
                         of log2 normalized abundances vs time.
                         Matrix is symmetric.
-        w0_0 (matrix):  A NxN matrix of inital"weights" which is a boolean value to include a given construct pair in
+        w0 (matrix):  A NxN matrix of inital"weights" which is a boolean value to include a given construct pair in
                         the fit; 1 is True, include the pair, while 0 is False, do not include it.
                         Used to silence bad constructs.
                         N is the number of probes.
@@ -150,14 +151,10 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
 
     # subset the constuct fitness matrix to the upper triangle (its symmetric)
     # filter out bad constructs, based on w0 mask
-    expressed = pd.DataFrame(np.triu(w0).astype(np.bool),
-                             columns=w0.columns,
-                             index=w0.index)
+    expressed = np.triu(w0).astype(np.bool)
 
     # initialize new weights matrix, assuming to start that all constructs are good
-    w = pd.DataFrame(np.ones((n,n)), 
-                             columns=w0.columns,
-                             index=w0.index)
+    w = np.ones((n,n))
 
     # filter weights
     w = filter_weights(w, w0)
@@ -202,11 +199,6 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
             j = np.sqrt(np.mean(fp**2))
             print("{}\t{:.4f}\t{:.6f}".format(counter,j,relative_error))
 
-    # make a dataframe out out of the probe fitnesses
-    fp = pd.DataFrame(fp, index=eij.index, columns=["fitness"])
-    fp.index.name = "probe"
-
-
     # return final results
     return fp, fij, eij
 
@@ -214,41 +206,42 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
 
 
 
+
+
+
+
 if __name__ == "__main__":
 
-	# set up argument parser
-	parser = argparse.ArgumentParser(usage = globals()['__doc__'])
-	parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output") 
-	parser.add_argument("-f", "--construct_fitness", action="store", default=None, help="Path to construct fitness.")     
-	parser.add_argument("-w", "--construct_weights", action="store", default=None, help="Path to construct weights.")
-	parser.add_argument("-o", "--output", action="store", default=None, \
-						help="Directory to write results to.")
-	parser.add_argument("-a", "--n_stds", action="store", default=2, \
-	 					help="Number of standard deviation to use in Tukey biweight normalization")
-	parser.add_argument("--tol", action="store", default=1e-3, \
-						help="Relative error tolerance")
-	parser.add_argument("--maxiter", action="store", default=50, \
-						help="Maximum iterations to perform")
-	# parse arguments
-	options = parser.parse_args()
+    # set up argument parser
+    parser = argparse.ArgumentParser(usage = globals()['__doc__'])
+    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output")
+    parser.add_argument("-f", "--construct_fitness", action="store", default=None, help="Path to construct fitness.")
+    parser.add_argument("-w", "--construct_weights", action="store", default=None, help="Path to construct weights.")
+    parser.add_argument("-o", "--output", action="store", default=None, \
+                        help="Directory to write results to.")
+    parser.add_argument("-a", "--n_stds", action="store", default=2, \
+                        help="Number of standard deviation to use in Tukey biweight normalization")
+    parser.add_argument("--tol", action="store", default=1e-3, \
+                        help="Relative error tolerance")
+    parser.add_argument("--maxiter", action="store", default=50, \
+                        help="Maximum iterations to perform")
+    # parse arguments
+    options = parser.parse_args()
 
-	if not options.construct_fitness and not options.construct_weights:
-		raise BaseException("No input files provided.")
+    if not options.construct_fitness and not options.construct_weights:
+        raise BaseException("No input files provided.")
 
-	# load input files
-	fc = load_construct_fitnesses(options.construct_fitness)
-	w0 = load_initial_weights(options.construct_weights)
+    # load input files
+    fc = load_construct_fitnesses(options.construct_fitness)
+    w0 = load_initial_weights(options.construct_weights)
 
-	# compute 
-	fp, fij, eij = irls(fc, w0,
-						ag=options.n_stds,
-						tol=options.tol,
-						maxiter=options.maxiter,
-						verbose=options.verbose)
+    # compute
+    fp, fij, eij = irls(fc, w0,
+                        ag=options.n_stds,
+                        tol=options.tol,
+                        maxiter=options.maxiter,
+                        verbose=options.verbose)
 
-	if options.output:
-		fp.to_csv(os.path.join(options.output, "probe_fitnesses.csv"), sep=",", header=True, index=True)
-		eij.to_csv(os.path.join(options.output, "pi_scores.csv"), sep=",", header=True, index=True)
-
-
-
+    if options.output:
+        np.savetxt(os.path.join(options.output, "probe_fitnesses.csv"), fp, delimiter=",")
+        np.savetxt(os.path.join(options.output, "pi_scores.csv"), eij, delimiter=",")
