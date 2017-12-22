@@ -10,7 +10,10 @@ TODO:
 """
 
 import os
+import numpy as np
+from numpy.matlib import repmat
 import pandas as pd
+from scipy.stats import t
 
 def fit_ac_fc(ab, freq):
     pass
@@ -52,6 +55,52 @@ def convert_timepoint_counts(df):
 
     return data, names
 
+def _cov(x,y, axis=0):
+    return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
+
+def fit_ac_fc_np(counts, abundance, times, n_good=2):
+    #TODO: Everything
+    #TODO: Missing local_fdr
+
+    bad = (counts > ab).sum(axis=2) < n_good
+    allbad = bad.all(axis=0)
+
+    counts_masked = np.ma.array(data=counts, mask=~(counts > ab))
+    time_masked = np.ma.array(data=time, mask=~(counts > ab))
+
+    mean_counts = np.ma.mean(counts_masked, axis=2).data
+    mean_time = np.ma.mean(time_masked, axis=2).data
+    var_time = np.ma.var(time_masked,axis=2).data
+    f = _cov(counts_masked, time_masked, axis=2).data
+
+    fc = np.divide(f.sum(axis=0), var_time.sum(axis=0))
+    fc[allbad] = 0
+
+    ac = mean_counts - (fc*mean_time)
+    ac[bad] = counts[bad,0]
+
+    alpha = -np.log2(np.power(2,ac).sum(axis=1))[...,np.newaxis]
+    ac = ac + alpha
+
+    lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*time).sum(axis=1))
+    xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*time + lmbda[...,np.newaxis].transpose(0,2,1)
+
+    df = (counts > ab).sum(axis=2).sum(axis=0) - 2
+    numerator = np.sqrt(np.power(xfit - counts_masked, 2).sum(axis=2).sum(axis=0))
+    denominator = np.sqrt(np.power(time_masked - time_masked.mean(axis=2)[...,np.newaxis], 2).sum(axis=2).sum(axis=0))
+
+    sdfc = np.divide(numerator,denominator)
+
+    df_masked = np.ma.array(data=df, mask=~(df > 0))
+
+    tstat_masked = np.ma.divide(fc, np.ma.divide(sdfc, np.ma.sqrt(df_masked)))
+    tstat_masked.data[tstat_masked.mask] = 1
+
+    tstat = tstat_masked.data
+    p_t = np.array([2*t.cdf(i,j) if j > 0 else 1 for i,j in zip(tstat, df)])
+
+    return ac, fc, sdfc, p_t, df, allbad
+
 if __name__ == "__main__":
     from config import config
 
@@ -60,6 +109,11 @@ if __name__ == "__main__":
     tps = load_timepoint_counts(os.path.join(config.A549_test, \
             "A549_timepoint_counts.txt"))
 
-    #print(convert_abundance_thresholds(ab))
+    _tps, names = convert_timepoint_counts(tps)
+    _abundance = convert_abundance_thresholds(ab)
 
-    print(convert_timepoint_counts(tps))
+    #For Testing only
+    _tps = _tps.iloc[:100,:]
+    _abundance = _abundance.iloc[:100,:]
+
+    fit_ac_fc_np([_tps[1], _tps[2]], [_abundance[1], _abundance[2]], np.array([3, 14, 21, 28]))
