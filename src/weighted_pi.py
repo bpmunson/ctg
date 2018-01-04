@@ -1,4 +1,4 @@
-    """
+"""
 Docstring
 
 
@@ -20,8 +20,18 @@ import pandas as pd
 import numpy as np
 
 
+def load_library_file(fp, sep=",", index_col=0, header=0):
+    """ Loads libary definition from a csv file
 
-def _get_null_array(df, probes, indices = None, null_regex=".*NonTargeting.*"):
+        TODO: assert this is a good library file, ie at a very mimumum validate the expected header
+
+    """
+    
+    library = pd.read_csv(fp, sep=sep, index_col=index_col, header = header)
+
+    return library
+
+def get_null_array(df, probes, indices = None, null_regex=".*NonTargeting.*"):
     """ Get the null array corresponding to rows of non targeting probes
     Args: 
         df (np.array): any array, n x m
@@ -34,13 +44,13 @@ def _get_null_array(df, probes, indices = None, null_regex=".*NonTargeting.*"):
     
     if indices is None:
         # if no index range was included use regex 
-        indices = _get_null_indices(probes, null_regex = null_regex)
+        indices = get_null_indices(probes, null_regex = null_regex)
 
     null_df = df[indices]
 
     return null_df
 
-def _get_null_indices(probes, null_regex=".*NonTargeting.*"):
+def get_null_indices(probes, null_regex=".*NonTargeting.*"):
     """ Get the null indices of the dataframe corresponding to non targeting probes
     Args:
         probes (list): the probe names for the entire library
@@ -55,7 +65,7 @@ def _get_null_indices(probes, null_regex=".*NonTargeting.*"):
 
     return ids
 
-def _get_null_probes_names(probes, null_regex=".*NonTargeting.*"):
+def get_null_probes_names(probes, null_regex=".*NonTargeting.*"):
     """ Get the null probe names of the full probe list corresponding to non targeting probes
     Args:
         probes (list): the probe names for the entire library
@@ -69,7 +79,7 @@ def _get_null_probes_names(probes, null_regex=".*NonTargeting.*"):
     
     return names
 
-def _get_target_to_probe_pairs(fn, sep="\t", header=0, comment = "#", null_regex=".*NonTargeting.*"):
+def get_target_to_probe_pairs(fn, sep="\t", header=0, comment = "#", null_regex=".*NonTargeting.*"):
     """ Loads library definition
         Todo: this assumes a CTG style library definition, should probably abstract it
     Args:
@@ -93,20 +103,64 @@ def _get_target_to_probe_pairs(fn, sep="\t", header=0, comment = "#", null_regex
     #c.drop('probe_id', axis=1, inplace=True)
 
     # replace NonTargetingNNNN target id 
-    null_probes = _get_null_probes_names(c['probe_id'], null_regex = null_regex )
+    null_probes = get_null_probes_names(c['probe_id'], null_regex = null_regex )
     c.loc[null_probes, 'target_id'] = "0NonTargeting" # TODO: change this hardcoding
 
     probe_to_target = c['probe_id','target_id'].values
 
     return probe_to_target
 
-def rank_probes(fp, probes, probe_to_target, null=True, null_probes = None, null_regex = ".*NonTargeting.*"):
+
+
+def rank_probes_new(fp, probes, probe_to_target, null=True, null_target = "NonTargeting"):
+    """Rank the probes by 
+    Todo:
+    should we require the library_definition?
+    add special case for null probes where we want the closest ones to zero
+    should the null_target be a list of nulls?
+
+    Args:
+        fp (dataframe): an array of imputed probe base fitness values. with at least one columns 'fitness' 
+                     and a multiindex containing probe and target ids
+        null (bool): treat the null probes differently
+        null_target (str): a string corresponding to which sample was the null sample
+
+    Returns:
+        fpr (dataframe): the original fp dataframe with an additional column corresponding to probe rnaks per target
+    """
+
+    # get absolute value of fitness
+    fpc.loc[:,'fitness_abs'] = fpc.loc[:,'fitness'].abs()
+
+    # get rank
+    # for the knockout probesthe assumption here is that we want the probes which deviate furthest from zero 
+    fpc.loc[:,'rank'] = fpc.groupby('target_id')['fitness_abs'].rank(method='max', ascending=False)
+
+    # do something special for the null probes
+    if null:
+        if null_probes is None:
+            # get the null probe names
+            null_probes = get_null_probes_names(fpc, null_regex = null_regex )
+
+        # replace the ranks for the null probes
+        # for the null probes we want to take the probes which are closest to zero 
+        fpc.loc[null_probes,'rank'] = fpc.loc[null_probes, :].groupby('target_id')['fitness_abs'].rank(method='min', ascending=True)
+ 
+    ranks = np.array(fpc['rank'])
+
+    return fpr
+
+
+    
+def rank_probes(fp, probes, library, null=True, null_probes = None, null_target = "NonTargeting"):
     """Rank the probes by 
     Todo:
     should we require the library_definition?
     add special case for null probes where we want the closest ones to zero
     Args:
         fp (np.array): an array of imputed probe base fitness values.
+        fp (dataframe): an array of imputed probe base fitness values. with at least two columns 'fitness' "rank"
+                     and a multiindex containing probe and target ids
         probes (list): the probe names for the entire library
         probe_to_target (list): a list of (probe, target) tuples
         null (bool): treat the null probes differently
@@ -121,29 +175,29 @@ def rank_probes(fp, probes, probe_to_target, null=True, null_probes = None, null
     # make probe fitnesses into dataframe with index being probe ids
     fp_df = pd.DataFrame(fp, index=probes, columns='fitness')
 
-    # make target to probe pairs a dataframe with index being probe ids
-    library = pd.DataFrame(probe_to_target, columns = ["probe_id","target_id"])
-    library.index = library['probe_id']
-
-    # add target ids to the fitness dataframe
-    fpc = pd.merge(fp_df, library, left_index = True, right_index=True)
+    # add target id to dataframe index if library is provided
+    fp_df.index = add_target_to_probe_index(fp_df.index, library)
 
     # get absolute value of fitness
     fpc.loc[:,'fitness_abs'] = fpc.loc[:,'fitness'].abs()
 
     # get rank
     # for the knockout probesthe assumption here is that we want the probes which deviate furthest from zero 
-    fpc.loc[:,'rank'] = fpc.groupby('target_id')['fitness_abs'].rank(method='max', ascending=False)
+    fpc.loc[:,'rank'] = fpc.index.groupby('target_id')['fitness_abs'].rank(method='max', ascending=False)
 
     # do something special for the null probes
     if null:
         if null_probes is None:
             # get the null probe names
-            null_probes = _get_null_probes_names(fpc, null_regex = null_regex )
-
+            null_probes = get_null_probes_names(fpc, null_regex = null_regex )
+        elif null_target:
+            # todo, this will undoutbly fail, 
+            # trying to get probe ids from matching target ids in multucolumns
+            null_probes = fp_df[fp_df.index.target_id == null_target].index.probe_id 
         # replace the ranks for the null probes
         # for the null probes we want to take the probes which are closest to zero 
-        fpc.loc[null_probes,'rank'] = fpc.loc[null_probes, :].groupby('target_id')['fitness_abs'].rank(method='min', ascending=True)
+        # todo: can we still use probe ids on a multiindex
+        fpc.loc[null_probes,'rank'] = fpc.loc[null_probes, :].index.groupby('target_id')['fitness_abs'].rank(method='min', ascending=True)
  
     ranks = np.array(fpc['rank'])
 
@@ -167,26 +221,15 @@ def ansatz_construct_weights(ranks, n_probes_per_target=2):
 
     construct_weights = np.outer(ranks_adj, ranks_adj)
 
-    # construct_weights = np.zeros((n,n))
-    # #rank_iloc = list(fpr.columns).index('rank')
-    # for i in range(n):
-    #     for j in range(n):
-    #         # so
-    #         # rank(1) * rank(1) is the best and gets a weight of 4
-    #         # rank(2) * rank(1) is second best and gets a weight of 2
-    #         # rank(2) * rank(2) is next and gets a weight of 1
-    #         # rank(3) * rank(3) is worst and we wont use it so it gets a rank of 0
-
-    #         # abstract this for any number of probes per construct
-    #         construct_weights[i][j] =   (ranks[i] - (n_probes_per_target+1)) * \
-    #                                     (ranks[j] - (n_probes_per_target+1))
     return construct_weights
 
-def ansatz_target_fitness(fp, probes, ranks, n_probes_per_target=2):
+def ansatz_target_fitness(fp, probes, ranks, library, n_probes_per_target=2):
     """ Compute the weighted fitness per target, collapsing the probe based fitnesses according to to their ranks
 
     Args: 
-        fp (np.array): an array of imputed probe base fitness values.
+        fp (dataframe): an array of imputed probe base fitness values. with at least two columns 'fitness' "rank"
+                     and a multiindex containing probe and target ids
+
         ranks (np.array): an array of integers corresponding to within target based fitness ranks
                          most likely 1.0, 2.0, 3.0, ... with 1 being the best 
 
@@ -196,14 +239,10 @@ def ansatz_target_fitness(fp, probes, ranks, n_probes_per_target=2):
     """
 
     # make probe fitnesses into dataframe with index being probe ids
-    df = pd.DataFrame(zip(fp, ranks), index=probes, columns=['fitness','probes'])
+    df = pd.DataFrame(zip(fp, ranks), index=probes, columns=['fitness','rank'])
 
-    # make target to probe pairs a dataframe with index being probe ids
-    library = pd.DataFrame(probe_to_target, columns = ["probe_id","target_id"])
-    library.index = library['probe_id']
-
-    # add target ids to the fitness dataframe
-    df = pd.merge(df, library, left_index = True, right_index=True)
+    # add target id to dataframe
+    df.index = add_target_to_probe_indes(df.index, library=library)
 
     # get number of probes weights
     df.loc[:,'rank_weight'] = (df['rank'] - (n_probes_per_target + 1))**2
@@ -215,6 +254,39 @@ def ansatz_target_fitness(fp, probes, ranks, n_probes_per_target=2):
     target_fitness = df.groupby('target_id')['weighted_fitness'].sum()/df.groupby('target_id')['rank_weight'].sum()
 
     return target_fitness
+
+def add_target_to_probe_index(index, library=None, library_file=None ):
+
+    if library is None:
+        if library_file is None:
+            raise BaseException("Must supply either a libary dataframe or a path to the library definition csv.")
+
+        library = load_library_file(library_file)
+
+    # make a dataframe from the index
+    i = pd.DataFrame(index, columns=['idx'])
+
+    # get only relvant columns from the library definition
+    libr = library[['probe_id','target_id']]
+
+    # merge the two together on probe_id
+    res = pd.merge(i, lib, left_on="idx", right_on="probe_id", how="left")
+
+    # set the index on the merge datfrmae 
+    res.set_index(['probe_id','target_id'], inplace = True)
+
+    # return the new index
+    return res.index
+
+
+
+
+
+
+def uniquify_null_tables(library, null_regex=".*NonTargeting.*"):
+    null_probes = get_null_probes_names(c['probe_id'], null_regex = null_regex )
+    c.loc[null_probes, 'target_id'] = "0NonTargeting" # TODO: change this hardcoding
+
 
 def weighted_target_pi( eij, fp, w0, probes, n_probes_per_target=2, epsilon = 1e-6,
     null_regex=".*NonTargeting.*",
@@ -239,29 +311,41 @@ def weighted_target_pi( eij, fp, w0, probes, n_probes_per_target=2, epsilon = 1e
 
 
     # get null mean
-    null_mean = _get_null_array(fp, null_regex = null_regex).mean()
+    null_mean = get_null_array(fp, null_regex = null_regex).mean()
 
     # substract the null mean from all the fitnesses
     fp = fp - null_mean
 
-    # build probe to target lookup table
-    probe_to_target = _get_target_to_probe_pairs(library_file)
+
+    # make a dataframe out of the probe fitnesses
+    fp = pd.DataFrame(fp, index=probes, columns='fitness')
+
+    # get the lbrary definitions file 
+    library = load_library_file(library_file)
+
+    # add target id to probe fitness dataframe
+    fp.index = add_target_to_probe_index(fp.index, lirbary=library)
 
     # rank probes , 1=best, 2= second best .... 
-    ranks = rank_probes(fp, probes, probe_to_target, null=True, null_regex = null_regex)
+    fpr = rank_probes(fp, null=True, null_target="0NonTargeting")
 
     # make boolean mask for expressed constructs
     expressed = w0>0
 
     # get construct weights
-    construct_weights = ansatz_construct_weights(ranks, n_probes_per_target=n_probes_per_target)
+    construct_weights = ansatz_construct_weights(fpr['rank'], n_probes_per_target=n_probes_per_target)
+
+    # make a dataframe out of the construct weights
+    construct_weight = pd.dataframe(construct_weights, columns=fp.index, index=fp.index )
 
     # make a dataframe out of the pi scores
-    eij = pd.DataFrame(eij, columns = probes, index=probes)
-    
-    # calculated weighted pi scores, filtering on only those expressed
-    eij_weighted = np.ma.masked_array(eij*construct_weights, mask=expressed)
+    eij = pd.DataFrame(eij, columns=fp.index, index=fp.index )
+        
 
+    # calculated weighted pi scores, filtering on only those expressed
+    #eij_weighted = np.ma.masked_array(eij*construct_weights, mask=expressed)
+    eij_weighted = eig*construct_weights[expressed]
+    
     # melt the weighted pi scores and add target ids
     eij_weighted_melt = _merge_in_target_ids(eij_weighted, library)
 

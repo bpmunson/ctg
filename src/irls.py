@@ -23,7 +23,6 @@ def load_construct_fitnesses(fp, sep=",", index_col=0, header=0):
     """
     
     fc = np.loadtxt(fp, delimiter=sep)
-
     return fc
 
 def load_initial_weights(fp, sep=",", index_col=0, header=0):
@@ -31,7 +30,6 @@ def load_initial_weights(fp, sep=",", index_col=0, header=0):
     """
     
     w0 = np.loadtxt(fp, delimiter=sep)
-    
     return w0
 
 def filter_weights(w, w0):
@@ -192,7 +190,7 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
         fp, fij, eij = solve_iteration(A, b)
 
         # calculate relative error to the last iteration
-        relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max(1, sum(fp_old**2)) )
+        relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
     
         # optionally print status to stdout 
         if verbose:
