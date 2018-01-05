@@ -10,6 +10,9 @@ Todo:
     verify biweight
     unit tests
     change ag to float but keep options for number of standard devaitions away
+
+    
+
 """
 
 import os
@@ -21,15 +24,15 @@ import numpy as np
 def load_construct_fitnesses(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed constuct fitnesses from a csv file
     """
-    
-    fc = np.loadtxt(fp, delimiter=sep)
+
+    fc = pd.read_csv(fp, sep=sep, header=header, index_col=index_col).values
     return fc
 
 def load_initial_weights(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed weights for construct inclusion in fitting.
     """
     
-    w0 = np.loadtxt(fp, delimiter=sep)
+    w0 = pd.read_csv(fp, sep=sep, header=header, index_col=index_col).values
     return w0
 
 def filter_weights(w, w0):
@@ -85,7 +88,7 @@ def construct_system_ab(fc, w, err=1e-6):
     
     return A, b
 
-def solve_iteration(A, b):
+def solve_iteration(A, b, fc):
     """ 
     Solves for the individual probe fitnesses
     """
@@ -97,7 +100,7 @@ def solve_iteration(A, b):
     n = A.shape[0]
     fij = np.zeros((n,n))
 
-    # fill expected fitness and pi score matrices
+    # fill expected fitness matrix
     for i in range(n):
         for j in range(i+1,n):
             fij[i,j] = x[i]+x[j]
@@ -161,7 +164,7 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
     A, b = construct_system_ab(fc, w)
     
     # get initial solution
-    fp, fij, eij = solve_iteration(A, b)
+    fp, fij, eij = solve_iteration(A, b, fc)
 
     # write status header
     if verbose:
@@ -187,7 +190,7 @@ def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
         A, b = construct_system_ab(fc, w)
         
         # get new solution
-        fp, fij, eij = solve_iteration(A, b)
+        fp, fij, eij = solve_iteration(A, b, fc)
 
         # calculate relative error to the last iteration
         relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
@@ -239,6 +242,14 @@ if __name__ == "__main__":
                         tol=options.tol,
                         maxiter=options.maxiter,
                         verbose=options.verbose)
+
+    if options.verbose:
+        print("\nProbe Fitnesses:")
+        print(pd.DataFrame(fp))
+
+        print("\nPi Scores:")
+        print(pd.DataFrame(eij))
+
 
     if options.output:
         np.savetxt(os.path.join(options.output, "probe_fitnesses.csv"), fp, delimiter=",")
