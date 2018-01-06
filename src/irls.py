@@ -21,19 +21,12 @@ import pandas as pd
 import numpy as np
 
 
-def load_construct_fitnesses(fp, sep=",", index_col=0, header=0):
+def load_matrix_csv(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed constuct fitnesses from a csv file
     """
 
     fc = pd.read_csv(fp, sep=sep, header=header, index_col=index_col).values
     return fc
-
-def load_initial_weights(fp, sep=",", index_col=0, header=0):
-    """ Loads precomputed weights for construct inclusion in fitting.
-    """
-    
-    w0 = pd.read_csv(fp, sep=sep, header=header, index_col=index_col).values
-    return w0
 
 def filter_weights(w, w0):
     """Filter weights for bad constructs and constructs with the only one target
@@ -65,8 +58,6 @@ def biweight(eij, ag=2, expressed=None):
     w[abs(eij)>(ag*sd)]=0
 
     return w
-
-
 
 def construct_system_ab(fc, w, err=1e-6):
     """ Construct the system of equations to solve
@@ -115,7 +106,7 @@ def solve_iteration(A, b, fc):
 
     return x, fij, eij
 
-def irls(fc, w0, ag=2, probes=None, tol=1e-3, maxiter=50, verbose=False):
+def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False):
     """ The iterative least squares fitting function of single gene fitnesses
 
     Args:
@@ -216,12 +207,14 @@ if __name__ == "__main__":
     # set up argument parser
     parser = argparse.ArgumentParser(usage = globals()['__doc__'])
     parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output")
-    parser.add_argument("-f", "--construct_fitness", action="store", default=None, help="Path to construct fitness.")
-    parser.add_argument("-w", "--construct_weights", action="store", default=None, help="Path to construct weights.")
+    parser.add_argument("-f", "--construct_fitness", action="store", default=None, required=True, \
+                        help="Path to construct fitness matrix.")
+    parser.add_argument("-w", "--construct_weights", action="store", default=None, required=True, \
+                        help="Path to construct weights.")
     parser.add_argument("-o", "--output", action="store", default=None, \
                         help="Directory to write results to.")
     parser.add_argument("-a", "--n_stds", action="store", default=2, \
-                        help="Number of standard deviation to use in Tukey biweight normalization")
+                        help="Number of standard deviation to use in Tukey biweight normalization.")
     parser.add_argument("--tol", action="store", default=1e-3, \
                         help="Relative error tolerance")
     parser.add_argument("--maxiter", action="store", default=50, \
@@ -233,8 +226,8 @@ if __name__ == "__main__":
         raise BaseException("No input files provided.")
 
     # load input files
-    fc = load_construct_fitnesses(options.construct_fitness)
-    w0 = load_initial_weights(options.construct_weights)
+    fc = load_matrix_csv(options.construct_fitness)
+    w0 = load_matrix_csv(options.construct_weights)
 
     # compute
     fp, fij, eij = irls(fc, w0,
