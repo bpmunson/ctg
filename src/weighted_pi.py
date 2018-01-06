@@ -34,7 +34,7 @@ def load_library_file(fp, sep="\t", index_col=0, header=0, comment="#"):
     library = pd.read_csv(fp, sep=sep, index_col=index_col, header = header, comment=comment)
     return library
 
-def get_null_array( df, null_target_id = "NULL"):
+def get_null_array( df, null_target_id = "NonTargetingControl"):
     """ Get the null array corresponding to rows of non targeting probes
     Args: 
         df (np.array): any array, n x m
@@ -43,7 +43,7 @@ def get_null_array( df, null_target_id = "NULL"):
         null_df (np.array): returns a array QxM where Q is the number of null probes,
                             M is the original number of columns
     Raises:
-        BaseException: if not rows corresponding to provided null_target_id were found
+        KeyError: if no rows corresponding to provided null_target_id were found
     """
     if (df.index.get_level_values('target_id')==null_target_id).any():
         null_df = df.xs(null_target_id, level="target_id")
@@ -51,12 +51,12 @@ def get_null_array( df, null_target_id = "NULL"):
         raise(KeyError("No null targets found corresponding to '{}'".format(null_target_id)))
     return null_df
 
-def add_target_to_probe_index(  index,  
-                                library=None,
-                                library_file=None, \
-                                null=True,
-                                null_target_regex="NonTargetingControl",
-                                null_target_id="NULL" ):
+def add_target_to_probe_index(index,  
+    library=None,
+    library_file=None, \
+    null=True,
+    null_target_regex="NonTargetingControl",
+    null_target_id="NonTargetingControl" ):
     """Description
     """
     if library is None:
@@ -97,7 +97,7 @@ def add_target_to_probe_index(  index,
     # return the new index
     return res.index
 
-def rank_probes(fp, null=True, null_target_id = "NULL"):
+def rank_probes(fp, null=True, null_target_id = "NonTargetingControl"):
     """Rank the probes by deviation from zero
     Todo:
     should we require the library_definition?
@@ -134,7 +134,7 @@ def rank_probes(fp, null=True, null_target_id = "NULL"):
         if (fpr.index.get_level_values('target_id')==null_target_id).any():
             tmp_a = fpr.loc(axis=0)[idx[:, null_target_id]]
         else:
-            raise(BaseException("No null targets found corresponding to '{}'".format(null_target_id)))
+            raise(KeyError("No null targets found corresponding to '{}'".format(null_target_id)))
 
         # reverse the rank sorting for null probes, ie closer to zero is better
         tmp_b = tmp_a.groupby('target_id')['fitness_abs'].rank(method='min', ascending=True)
@@ -209,8 +209,9 @@ def weight_by_target( eij, fp, w0, probes,
     epsilon = 1e-6,
     library_file="~/dual_crispr/library_definitions/test_library_2.txt",
     null_target_regex="NonTargetingControl",
-    null_target_id="NULL",
-    null = True):
+    null_target_id="NonTargetingControl",
+    null = True,
+    ):
 
     """ Calculated the weighted average of pi scores and fitness 
     TODO: this uses the ansatz of squared rank performance to calculate means, should we be doing this?
@@ -226,8 +227,8 @@ def weight_by_target( eij, fp, w0, probes,
                         dual probe interaction score. Matrix is symmetric about the diagonal.
         probes (list): the probe names for the corresponding arrays
     Returns:
-        eijm (np.array): a matrix containing the pi scores
-        target_fitnesses 
+        eijm (pandas dataframe): a dataframe containing the pi scores in square format
+        target_fitnesses (pandas series): a named series containing gene/target fitnesses 
     """
 
     # make a dataframe out of the probe fitnesses
@@ -293,6 +294,11 @@ def weight_by_target( eij, fp, w0, probes,
     # normalize the constructs to the applied weights
     eijm = eij_sum / normalizer
 
+    # cast pi scores into matrix (wide) format 
+    eijm = eijm.to_frame()
+    eijm.columns = ["pi"]
+    eijm = eijm.reset_index().pivot(index='target_id_1', columns='target_id_2', values = 'pi')
+
     # finally return results
     return eijm, target_fitness
 
@@ -302,29 +308,31 @@ if __name__ == "__main__":
 
     # set up argument parser
     parser = argparse.ArgumentParser(usage = globals()['__doc__'])
+
     parser.add_argument("-v", "--verbose", action="store_true", default=False, \
                         help="Verbose output")
-    parser.add_argument("-f", "--construct_fitness", action="store", default=None, \
-                        help="Path to construct fitness.")
-    parser.add_argument("-s", "--construct_fitness_std", action="store", default=None, \
+    parser.add_argument("-f", "--construct_fitness", action="store", default=None, required=True, \
+                        help="Path to construct fitness matrix.")
+    parser.add_argument("-s", "--construct_fitness_std", action="store", default=None, required=True, \
                         help="Path to construct fitness standard deviation.")
-    parser.add_argument("-p", "--posterior_probability", action="store", default=None, \
+    parser.add_argument("-p", "--posterior_probability", action="store", default=None, required=True, \
                         help="Path to pi score posteriors.")
-    parser.add_argument("-w", "--construct_weights", action="store", default=None, \
+    parser.add_argument("-w", "--construct_weights", action="store", default=None, required=True, \
                         help="Path to construct weights.")
-    parser.add_argument("-l", "--library_file", action="store", \
+    parser.add_argument("-l", "--library_file", action="store", required=True, \
                         default="~/dual_crispr/library_definitions/test_library_2.txt", \
                         help="Path to library defintion.")
     parser.add_argument("-o", "--output", action="store", default=None, \
                         help="Directory to write results to.")
     parser.add_argument("-a", "--n_stds", action="store", default=2, \
-                        help="Number of standard deviation to use in Tukey biweight normalization")
+                        help="Number of standard deviation to use in Tukey biweight normalization.")
     parser.add_argument("--tol", action="store", default=1e-3, \
                         help="Relative error tolerance")
     parser.add_argument("--maxiter", action="store", default=50, \
                         help="Maximum IRLS iterations to perform")
-    parser.add_argument("--bootstrap_iterations", action="store", default=2, \
-                        help="Number of bootstrap iterations to perform")
+    parser.add_argument("-n", "--n_probes_per_target", action="store", default=2, \
+                        help="Maximum number of probes per target to use.")
+
     # parse arguments
     options = parser.parse_args()
 
@@ -332,17 +340,14 @@ if __name__ == "__main__":
         raise BaseException("No input files provided.")
 
     # load input files
-    fc = load_construct_fitnesses(options.construct_fitness)
-    w0 = load_initial_weights(options.construct_weights)
-    sdfc = load_construct_fitnesses(options.construct_fitness_std)
-    pp = load_construct_fitnesses(options.posterior_probability)
+    fc = load_matrix_csv(options.construct_fitness)
+    w0 = load_matrix_csv(options.construct_weights)
+    sdfc = load_matrix_csv(options.construct_fitness_std)
+    pp = load_matrix_csv(options.posterior_probability)
 
     # TODO: functionalize the probe label loadings
     probes = list(pd.read_csv(options.construct_fitness, header=0, index_col=0).columns)
 
-    library_file = options.library_file
-    epsilon=1e-6
-    n_probes_per_target=2
 
     # compute initial fitness and interaction estimates
     fp, fij, eij = irls(fc, w0,
@@ -353,10 +358,19 @@ if __name__ == "__main__":
 
 
     # compute weighted estimates
-    pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, library_file = options.library_file,
+    pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes,
+                                                n_probes_per_target=options.n_probes_per_target,
+                                                library_file = options.library_file,
                                                 null_target_regex = "NonTargeting",
-                                                null_target_id = "NULL"
+                                                null_target_id = "0",
+                                                null = True
                                                 )
+
+
+
+    if options.output:
+        pi_scores.to_csv(os.path.join(options.output, "TestSet8_pi_scores.csv"), sep=",")
+        target_fitness.to_csv(os.path.join(options.output, "TestSet8_f_target.csv"), sep=",")
 
 
 
