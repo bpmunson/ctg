@@ -285,7 +285,7 @@ def weight_by_target( eij, fp, w0, probes,
                     .groupby(['target_id_1','target_id_2']).sum()
 
     # calculate normalizer from mean of target pairs weights 
-    normalizer = construct_weights.stack(level=construct_weights.columns.names)\
+    normalizer = construct_weights[expressed].stack(level=construct_weights.columns.names)\
                     .groupby(['target_id_1','target_id_2']).sum()
 
     # default the normalizer to some small value if ~0 to zero out any non weigthed pi scores
