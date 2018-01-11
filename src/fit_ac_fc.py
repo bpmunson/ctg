@@ -58,7 +58,7 @@ def convert_timepoint_counts(df):
 def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
-def fit_ac_fc_np(counts, abundance, times, n_good=2):
+def fit_ac_fc_np(counts, ab, times, n_good=2):
     #TODO: Everything
     #TODO: Missing local_fdr
 
@@ -66,7 +66,7 @@ def fit_ac_fc_np(counts, abundance, times, n_good=2):
     allbad = bad.all(axis=0)
 
     counts_masked = np.ma.array(data=counts, mask=~(counts > ab))
-    time_masked = np.ma.array(data=time, mask=~(counts > ab))
+    time_masked = np.ma.array(data=times, mask=~(counts > ab))
 
     mean_counts = np.ma.mean(counts_masked, axis=2).data
     mean_time = np.ma.mean(time_masked, axis=2).data
@@ -82,8 +82,8 @@ def fit_ac_fc_np(counts, abundance, times, n_good=2):
     alpha = -np.log2(np.power(2,ac).sum(axis=1))[...,np.newaxis]
     ac = ac + alpha
 
-    lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*time).sum(axis=1))
-    xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*time + lmbda[...,np.newaxis].transpose(0,2,1)
+    lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times).sum(axis=1))
+    xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis].transpose(0,2,1)
 
     df = (counts > ab).sum(axis=2).sum(axis=0) - 2
     numerator = np.sqrt(np.power(xfit - counts_masked, 2).sum(axis=2).sum(axis=0))
@@ -116,4 +116,11 @@ if __name__ == "__main__":
     _tps = _tps.iloc[:100,:]
     _abundance = _abundance.iloc[:100,:]
 
-    fit_ac_fc_np([_tps[1], _tps[2]], [_abundance[1], _abundance[2]], np.array([3, 14, 21, 28]))
+
+    times = np.array([[3, 14, 21, 28], [3,14,21,28]])
+    #times = np.transpose(times[...,np.newaxis], axes=[0,2,1])
+    times = repmat(times, 100, 1).reshape((2,100,4))
+
+    fit_ac_fc_np(np.array([_tps[1].as_matrix(), _tps[2].as_matrix()]),
+                 np.array([_abundance[1].as_matrix(), _abundance[2].as_matrix()]),
+                 times)
