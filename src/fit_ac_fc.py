@@ -1,24 +1,18 @@
-"""Initializes abundance and fitnesses for the iterative least squares
-
-This module initializes abundance and fitness for iterative least squares later.
-
-TODO:
-    * Update docstrings
-    * Separate conversion tools (to change existing data structure to new ones)
-    * Change variable names to something more descriptive
-
-"""
-
 import os
+import sys
+
 import numpy as np
 from numpy.matlib import repmat
 import pandas as pd
 from scipy.stats import t
 
-def fit_ac_fc(ab, freq):
-    pass
+from config import config
 
-def load_abundance_thresholds(fn, sep='\s+'):
+from rpy2 import robjects
+from rpy2.robjects.packages import importr
+from rpy2.robjects.numpy2ri import numpy2ri
+
+def _load_abundance_thresholds(fn, sep='\s+'):
     """Loads abundance thresholds.
 
     """
@@ -27,7 +21,7 @@ def load_abundance_thresholds(fn, sep='\s+'):
 
     return ab
 
-def load_timepoint_counts(fn, sep="\s+"):
+def _load_timepoint_counts(fn, sep="\s+"):
     """Loads timepoint counts.
 
     """
@@ -36,14 +30,14 @@ def load_timepoint_counts(fn, sep="\s+"):
 
     return tps
 
-def convert_abundance_thresholds(df, sep="_"):
+def _convert_abundance_thresholds(df, sep="_"):
     df.index = pd.MultiIndex.from_tuples(
         [(int(i.split('_')[2]), int(i.split('_')[1][1:])) for i in df.index],
         names=['reps', 'time'])
 
     return df.T
 
-def convert_timepoint_counts(df):
+def _convert_timepoint_counts(df):
     data = df.iloc[:, 5:]
     names = df.iloc[:,:5]
 
@@ -58,12 +52,77 @@ def convert_timepoint_counts(df):
 def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
-def fit_ac_fc_np(counts, ab, times, n_good=2):
-    #TODO: Everything
-    #TODO: Missing local_fdr
+def prep_input(abundance_file, counts_file):
+    ab = _load_abundance_thresholds(abundance_file)
+    tps = _load_timepoint_counts(counts_file)
+
+    _tps, names = _convert_timepoint_counts(tps)
+    _abundance = _convert_abundance_thresholds(ab)
+
+    names.loc[names['target_a_id'].str.contains('NonTargeting'), 'target_a_id'] = '0'
+    names.loc[names['target_b_id'].str.contains('NonTargeting'), 'target_b_id'] = '0'
+
+    good = ~(names['target_a_id'] == names['target_b_id'])
+    good_data = _tps.loc[good]
+    good_names = names.loc[good]
+
+    cpA = good_names['probe_a_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
+    cpB = good_names['probe_b_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
+
+    pswitch = cpA > cpB
+    phold = cpA.loc[pswitch]
+    cpA.loc[pswitch] = cpB.loc[pswitch]
+    cpB.loc[pswitch] = phold
+
+    probes = pd.concat([cpA, cpB]).unique()
+    probes.sort()
+    nprobes = len(probes)
+
+    cgA = good_names['target_a_id']
+    cgB = good_names['target_b_id']
+
+    genes = pd.concat([cgA, cgB]).unique()
+    genes.sort()
+
+    n = genes.shape[0]
+    mm = n*(n-1)/2
+
+    gswitch = cgA > cgB
+    ghold = cgA.loc[gswitch]
+
+    cgA_c = cgA.copy() # Avoid the copy warning
+    cgB_c = cgB.copy()
+
+    cgA_c.loc[gswitch] = cgB.loc[gswitch]
+    cgB_c.loc[gswitch] = ghold
+
+    cgA = cgA_c
+    cgB = cgB_c
+
+    gA_gB = cgA.str.cat(cgB, sep='_')
+    pA_pB = cpA.str.cat(cpB, sep='_')
+
+    good_data.values[good_data.values == 0] = 1
+    abundance = good_data.sum(axis=0)
+    y = np.log2(good_data/abundance)
+
+    ab0 = pd.Series(ab.values.ravel() - np.log2(abundance.values), index=abundance.index)
+
+    counts = np.array([y[1].values, y[2].values])
+    ab = np.array([ab0[1].values, ab0[2].values])[...,np.newaxis].transpose(0,2,1)
+
+    return ab, counts
+
+def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
+    #TODO: Validation code here of the input shapes
+
+    ab, counts = prep_input(abundance_file, counts_file)
+    n_reps, n_samples, n_timepts = counts.shape
 
     bad = (counts > ab).sum(axis=2) < n_good
     allbad = bad.all(axis=0)
+
+    times = repmat(times, n_samples, 1).reshape(counts.shape)
 
     counts_masked = np.ma.array(data=counts, mask=~(counts > ab))
     time_masked = np.ma.array(data=times, mask=~(counts > ab))
@@ -86,6 +145,7 @@ def fit_ac_fc_np(counts, ab, times, n_good=2):
     xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis].transpose(0,2,1)
 
     df = (counts > ab).sum(axis=2).sum(axis=0) - 2
+
     numerator = np.sqrt(np.power(xfit - counts_masked, 2).sum(axis=2).sum(axis=0))
     denominator = np.sqrt(np.power(time_masked - time_masked.mean(axis=2)[...,np.newaxis], 2).sum(axis=2).sum(axis=0))
 
@@ -97,30 +157,16 @@ def fit_ac_fc_np(counts, ab, times, n_good=2):
     tstat_masked.data[tstat_masked.mask] = 1
 
     tstat = tstat_masked.data
-    p_t = np.array([2*t.cdf(i,j) if j > 0 else 1 for i,j in zip(tstat, df)])
+    p_t = np.array([2*t.cdf(-abs(i),j) if j > 0 else 1 for i,j in zip(tstat, df)])
 
-    return ac, fc, sdfc, p_t, df, allbad
+    qvalue = importr('qvalue')
+    r_pt = numpy2ri(p_t) #Missing has_sd
+    lfdr = np.array(qvalue.lfdr(r_pt, method="bootstrap"))
+
 
 if __name__ == "__main__":
-    from config import config
+    abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds.txt")
+    counts_file = os.path.join(config.A549_test, "A549_timepoint_counts.txt")
+    times = np.array([[3,14, 21, 28], [3,14,21,28]])
 
-    ab = load_abundance_thresholds(os.path.join(config.A549_test, \
-            "A549_abundance_thresholds.txt"))
-    tps = load_timepoint_counts(os.path.join(config.A549_test, \
-            "A549_timepoint_counts.txt"))
-
-    _tps, names = convert_timepoint_counts(tps)
-    _abundance = convert_abundance_thresholds(ab)
-
-    #For Testing only
-    _tps = _tps.iloc[:100,:]
-    _abundance = _abundance.iloc[:100,:]
-
-
-    times = np.array([[3, 14, 21, 28], [3,14,21,28]])
-    #times = np.transpose(times[...,np.newaxis], axes=[0,2,1])
-    times = repmat(times, 100, 1).reshape((2,100,4))
-
-    fit_ac_fc_np(np.array([_tps[1].as_matrix(), _tps[2].as_matrix()]),
-                 np.array([_abundance[1].as_matrix(), _abundance[2].as_matrix()]),
-                 times)
+    fit_ac_fc(abundance_file, counts_file, times)
