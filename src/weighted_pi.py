@@ -211,6 +211,7 @@ def weight_by_target( eij, fp, w0, probes,
     null_target_regex="NonTargetingControl",
     null_target_id="NonTargetingControl",
     null = True,
+    fp_0 = None
     ):
 
     """ Calculated the weighted average of pi scores and fitness 
@@ -245,12 +246,6 @@ def weight_by_target( eij, fp, w0, probes,
                                             null_target_id = null_target_id,
                                             null_target_regex=null_target_regex)
 
-    # make copies of the index and rename levels
-    rows = fp.index.copy()
-    rows.names = ['probe_id_1','target_id_1']
-    columns = fp.index.copy()
-    columns.names = ['probe_id_2','target_id_2']
-
     if null:
         # get null mean
         null_mean = get_null_array(fp, null_target_id = null_target_id).mean(axis=0) 
@@ -258,14 +253,54 @@ def weight_by_target( eij, fp, w0, probes,
         # substract the null mean from all the fitnesses
         fp = fp - null_mean
 
-    # rank probes , 1=best, 2= second best .... 
-    fpr = rank_probes(fp, null=null, null_target_id= null_target_id)
+    # use the precompute ranks instead of those calculated here
+    if fp_0 is not None:
+        # TODO: clean up this repeat of code, don't recalculate the rankings everytime?
+        # make a dataframe out of the probe fitnesses
+        fp_0 = pd.DataFrame(fp_0, index=probes, columns=['fitness'])
+
+        # get the lbrary definitions file 
+        library = load_library_file(library_file, sep="\t", header=0, index_col=0, comment="#")
+
+        # add target id to probe fitness dataframe
+        # while change the NonTargeting names to NULL
+        fp_0.index = add_target_to_probe_index(   fp_0.index,
+                                                library=library,
+                                                null=null,
+                                                null_target_id = null_target_id,
+                                                null_target_regex=null_target_regex)
+
+        if null:
+            # get null mean
+            null_mean = get_null_array(fp_0, null_target_id = null_target_id).mean(axis=0) 
+
+            # substract the null mean from all the fitnesses
+            fp_0 = fp_0 - null_mean
+
+        # rank probes , 1=best, 2= second best .... 
+        fpr = rank_probes(fp_0, null=null, null_target_id= null_target_id)
+
+        # reassign fitness column names
+        fpr.columns = ['fitness_0', 'rank']
+
+        # concatenate and drop the full fitness column
+        fpr = pd.concat([fp, fpr], axis=1)
+        fpr = fpr.drop('fitness_0', axis=1)
+    else:
+        # rank probes , 1=best, 2= second best .... 
+        fpr = rank_probes(fp, null=null, null_target_id= null_target_id)
 
     # compute the weighted target fitness
     target_fitness = ansatz_target_fitness(fpr, n_probes_per_target=2)
 
     # get construct weights
     construct_weights = ansatz_construct_weights(fpr['rank'], n_probes_per_target=n_probes_per_target)
+
+    # make copies of the index and rename levels
+    rows = fp.index.copy()
+    rows.names = ['probe_id_1','target_id_1']
+    columns = fp.index.copy()
+    columns.names = ['probe_id_2','target_id_2']
 
     # make a dataframe out of the construct weights
     construct_weights = pd.DataFrame(construct_weights, columns=columns, index=rows )
