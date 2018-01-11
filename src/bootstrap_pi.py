@@ -212,28 +212,63 @@ def run_iteration(fc, pp, sdfc, w0, probes,
     # return results of bootstrap
     return pi_iter, fitness_iter 
 
-def compute_mean(pi_iter, fitness_iter):
-    """ Comput means across iterations
-    """
-    mean_pi = pi_iter.mean(axis=1)
-    mean_fitness = fitness_iter.mean(axis=1)
-    return mean_pi, mean_fitness
 
-def fdr(pi_iter):
-    """ Compute the FDR for a set of pi scores
+def compute_fdr(pi_iter):
+    from statsmodels.distributions.empirical_distribution import ECDF
 
-    Requires: statsmodels package
-    """
-    # compute the mean pi
     pi_mean = pi_iter.mean(axis=1)
+    pi_iter_null = pi_iter.subtract(pi_mean, axis=0).values.flatten()
 
-    # get iter null pi by subtracting mean
-    pi_iter_null = pi_iter - pi_mean
+    enull = ECDF( np.concatenate((pi_iter_null, - pi_iter_null)) )
+    emean = ECDF( pi_mean )
 
-    # get the empiricial cummulative distribution function
-    pi_null = range()
+    fdr_left = np.minimum(1, enull(pi_mean)/emean(pi_mean))
+    fdr_right = np.minimum(1, enull(-pi_mean)/(1-emean(pi_mean)))
+    fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)), index=pi_mean.index, columns=['fdr_left','fdr_right'])
+
+    return fdr
 
 
+def summarize(pi_iter, fitness_iter, pp):
+
+    from statsmodels.distributions.empirical_distribution import ECDF
+
+    fitness_mean = fitness_iter.mean(axis=1)
+    pi_mean = pi_iter.mean(axis=1)
+    pi_iter_null = pi_iter.subtract(pi_mean, axis=0).values.flatten()
+
+    enull = ECDF( np.concatenate((pi_iter_null, - pi_iter_null)) )
+    emean = ECDF( pi_mean )
+
+    fdr_left = np.minimum(1, enull(pi_mean)/emean(pi_mean))
+    fdr_right = np.minimum(1, enull(-pi_mean)/(1-emean(pi_mean)))
+    fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)), index=pi_mean.index, columns=['fdr_left','fdr_right'])
+
+
+    # get fdr for pairs
+    fdr = compute_fdr(pi_iter)
+
+    # calculate z score
+    sd = pi_mean.sd()
+    sd = sd.to_frame(columns=['std'])
+    z = pi_mean.divide(sd)
+    z = z.to_frame(columns=['Z'])
+
+    # compute posterior probability
+    pp = (pi_iter_null<pi_mean.abs()).mean(axis=1)
+    
+    # concatenate together
+    x = pd.concat([pi_mean, fdr, sd, z, pp])
+
+    # add genes as their own columns
+    x.loc[:,'geneA'] = x.loc(axis=0)[,'target_id_1']
+    x.loc[:,'geneB'] = x.loc(axis=0)[,'target_id_2']
+
+    # merge in gene fitnesses
+    x = pd.merge(x, fitness_mean, left_on='geneA', right_index=True, how="left")
+    x = pd.merge(x, fitness_mean, left_on='geneB', right_index=True, how="left")
+
+    return x
 
 
 if __name__ == "__main__":
