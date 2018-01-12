@@ -219,3 +219,153 @@ fit_ac_fc<-function(x1,ab1,x2,ab2) { #badx is TRUE when x-value is bad
    vl<-list(ac1,ac2,fc,sdfc,p_t,lfdr_fc,df,allbad,f1s,f2s)# BPM added return of replicate fitnesses
    return(vl)
 }
+
+input_filename = '/cellar/users/samsonfong/side_projects/17_12_14_skewed-GI/ctg_output/full/testing_20171214113528/testing_20171214113528_timepoint_counts.txt'
+X<-read.table(input_filename,sep="\t",header=TRUE, stringsAsFactors=FALSE)
+
+commaSepStringToNumVector<-function(commaSepString){
+    strVector = unlist(strsplit(commaSepString, ",", fixed=TRUE))
+    return(as.numeric(strVector))
+}
+
+time = commaSepStringToNumVector('3,14,21,28')
+
+
+small<-1e-6
+nt<-length(time) #nt >= 2 # number of timepoints
+mt<-mean(time)
+vt<-Var(time)
+
+#preliminary preparations of the input data frame
+# TODO: ok, the 5 & 6 are definitely hardcoding for #s of expected info columns.
+# TODO: the 2 seems like it is hardcoding for # of replicates
+data<-data.matrix(X[,6:(5+2*nt)])
+# TODO: target_a_id and target_b_id are hardcodings for info column names; undesirable.
+# TODO: however, assuming that there will be two genes (and two probes) per construct is acceptable
+# since this is a DUAL crispr pipeline.
+ixA<-grep("NonTargeting",X$target_a_id)
+X$target_a_id[ixA]=0 # nontargeting gene names set to 0
+ixB<-grep("NonTargeting",X$target_b_id)
+X$target_b_id[ixB]=0 # nontargeting gene names set to 0
+
+good<-(X$target_a_id != X$target_b_id) #reject any constructs where both probes are for same gene (including both zero)
+goodX<-X[good,] #the 0-0 constructs are gone
+nn<-sum(good) #this many constructs
+
+cpA<-as.character(goodX$probe_a_id)
+# TODO: "Nontargeting" (throughout) is hardcoding for ntc prefix; should be refactored
+ix<-grep("NonTargeting",cpA)
+cpA[ix]<-paste("0",cpA[ix],sep="") #this puts NonTargeting probes at the beginning of alphabetically sorted order
+
+#print(head(cpA))
+
+cpB<-as.character(goodX$probe_b_id)
+ix<-grep("NonTargeting",cpB)
+cpB[ix]<-paste("0",cpB[ix],sep="")
+
+pswitch<-cpA>cpB #need to switch?
+phold<-cpA[pswitch]
+cpA[pswitch]<-cpB[pswitch]
+cpB[pswitch]<-phold #cpA and cpB are always in alphabetical order, cpA < cpB
+probes<-sort(unique(c(cpA,cpB))) #entire probe set in alphabetical order
+nprobes<-length(probes)
+
+cgA<-as.character(goodX$target_a_id)
+cgB<-as.character(goodX$target_b_id)
+genes<-sort(unique(c(cgA,cgB))) #should be 74 "genes"
+n<-length(genes) # n = 74 if doing it by genes or 222 if doing it by probe # number of genes
+mm<-n*(n-1)/2
+
+gswitch<-cgA>cgB #need to switch?
+ghold<-cgA[gswitch]
+
+cgA[gswitch]<-cgB[gswitch]
+cgB[gswitch]<-ghold
+
+# TODO: probably separator should be specified in set-up rather than hardcoded
+gA_gB<-paste(cgA,cgB,sep="_")
+pA_pB<-paste(cpA,cpB,sep="_")
+
+goodX<-data.frame(goodX,cgA,cgB,gA_gB) #now gA_gB is ordered so that gA < gB
+
+
+# TODO: def refactor here, as above
+gooddata<-data.matrix(goodX[,6:(5+2*nt)])
+
+# TODO: are we ok with hardcoding what the pseudocount will be?  Maybe should set in params.
+gooddata[gooddata==0]<-1 #pseudocounts
+
+abundance<-apply(gooddata,2,sum)
+y<-t(log2(t(gooddata)/abundance)) #log2 frequencies
+#end data prep
+
+convertAbundanceThresholdsUnits <- function(totalCountsPerSample, log2CountsThresholdsPerSample){
+    if (names(totalCountsPerSample) != rownames(log2CountsThresholdsPerSample)){
+        stop(paste0("Sample names for total counts per sample (", paste(names(totalCountsPerSample), collapse=","),
+                   ") do not match sample names for log2 abundance thresholds (",
+                   paste(rownames(log2CountsThresholdsPerSample), collapse=","), ")."))
+    }
+
+    log2CountsThresholdsVector = as.numeric(as.vector(log2CountsThresholdsPerSample[,1]))
+    names(log2CountsThresholdsVector) = rownames(log2CountsThresholdsPerSample)
+    log2CountsFreqsVector = log2CountsThresholdsVector - log2(totalCountsPerSample)
+    return(log2CountsFreqsVector)
+}
+
+ab0 = convertAbundanceThresholdsUnits(abundance, gAbundanceThreshsDf)
+print(ab0)
+
+# So ... we're building 3 matrices of n genes by n genes.
+# The first one just
+# Again, here 1 & 2 hardcoding acceptable as means 1st and 2nd of DUAL crispr construct
+g1names<-matrix("",ncol=n,nrow=n) # n = number of genes
+g2names<-matrix("",ncol=n,nrow=n)
+ggnames<-matrix("",ncol=n,nrow=n)
+for (i in 1:(n-1)) {
+   for (j in (i+1):n) {
+      g1names[i,j]<-genes[i]
+      g2names[i,j]<-genes[j]
+       # TODO: Separator should be set in params rather than hardcoded
+      ggnames[i,j]<-paste(genes[i],"_",genes[j],sep="")
+      ggnames[j,i]<-ggnames[i,j]
+   }
+}
+# OK, everything above this comment actually has zero to do with finding the # of constructs below the
+# abundance thresholds--it is just setting up some data structures with gene labels in them for use (much) later
+# in the pi score file output.
+
+
+# y is df of log2 frequencies (rows = constructs, cols = timept+replicate, no info columns)
+# for replicate 1
+# "2"s here and line below look like replicate hardcoding; refactor
+
+# Ok, so this is getting the log2 frequencies for the 1st replicate of all timepts
+x1<-y[,seq(1,2*nt,by=2)]
+# This is getting the abundance thresholds for all of these 1st replicates
+ab1<-ab0[seq(1,2*nt,by=2)]
+# TODO: 1st "2" here is ok (designates row vs col) ... but what is source of second?
+bad1<-apply(t(x1)>ab1,2,sum)<2
+print(sum(bad1))
+
+# for replicate 2
+# "2"s here and line below look like replicate hardcoding; refactor
+# Ok, so this is getting the log2 frequencies for the 2nd replicate of all timepts
+x2<-y[,seq(2,2*nt,by=2)]
+# This is getting the abundance thresholds for all of these 2nd replicates
+ab2<-ab0[seq(2,2*nt,by=2)]
+# TODO: 1st "2" here is ok (designates row vs col); 2nd doesn't mean replicates but
+# represents arbitrary(?) decision that a construct is bad if it isn't over the relevant
+# abundance threshold in at least two timepoints.  Could one reasonably choose a
+# different value?  If so, should refactor to set in params.
+
+# 2 in apply call params means "sum over columns".  Because of t call, x2 has been
+# transposed so t(x2) has timept as rows and constructs as columns.
+# We're calling "bad" any construct that doesn't have log2 frequency values above the timepoint-specific
+# abundance threshold for at least two timepoints
+bad2<-apply(t(x2)>ab2,2,sum)<2
+print(sum(bad2))
+
+print(head(x1))
+print(ab1)
+
+# the printed numbers are *per-replicate*

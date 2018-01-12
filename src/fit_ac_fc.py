@@ -111,12 +111,20 @@ def prep_input(abundance_file, counts_file):
     counts = np.array([y[1].values, y[2].values])
     ab = np.array([ab0[1].values, ab0[2].values])[...,np.newaxis].transpose(0,2,1)
 
-    return ab, counts
+    return ab, counts, good_names
+
+def _sqrtsum(x):
+    if not isinstance(x, np.ndarray):
+        x = np.array(x)
+
+    x_sq = np.power(x,2)
+    return np.sqrt(x_sq.sum())
 
 def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     #TODO: Validation code here of the input shapes
+    #TODO: Fix Names
 
-    ab, counts = prep_input(abundance_file, counts_file)
+    ab, counts, names = prep_input(abundance_file, counts_file)
     n_reps, n_samples, n_timepts = counts.shape
 
     bad = (counts > ab).sum(axis=2) < n_good
@@ -144,12 +152,71 @@ def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times).sum(axis=1))
     xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis].transpose(0,2,1)
 
-    df = (counts > ab).sum(axis=2).sum(axis=0) - 2
+    #TODO: Move this mask up
+    mask = counts > ab
+    useless = mask.sum(axis=2) < 2
+    mask[useless] = False
 
-    numerator = np.sqrt(np.power(xfit - counts_masked, 2).sum(axis=2).sum(axis=0))
-    denominator = np.sqrt(np.power(time_masked - time_masked.mean(axis=2)[...,np.newaxis], 2).sum(axis=2).sum(axis=0))
+    df = mask.sum(axis=2).sum(axis=0) - 2
+    df[allbad] = 0
 
-    sdfc = np.divide(numerator,denominator)
+    counts_masked = np.ma.array(data=counts, mask=~mask)
+    xfit_masked = np.ma.array(data=xfit, mask=~mask)
+    time_masked = np.ma.array(data=times, mask=~mask)
+
+    # numerator = np.sqrt(np.power(xfit_masked - counts_masked, 2).sum(axis=2).sum(axis=0))
+    # denominator = np.sqrt(np.power(time_masked - time_masked.mean(axis=2)[...,np.newaxis], 2).sum(axis=2).sum(axis=0))
+    #
+    # sdfc = np.divide(numerator.data,denominator.data)
+    # sdfc[allbad] = 0.1
+    #
+    # has_sd = df > 0
+    # median_sd = np.median(sdfc[has_sd])
+    # sdfc[~has_sd] = median_sd
+
+    # sdfc = np.array([0.1]*n_samples)
+    # for i in range(0,n_samples):
+    #     if allbad[i]:
+    #         continue
+    #
+    #     g1 = mask[0][i, :]
+    #     g2 = mask[1][i, :]
+    #
+    #     n1 = np.hstack([xfit[0,i,g1], xfit[1,i,g2]]) - np.hstack([counts[0,i,g1], counts[1,i,g2]])
+    #
+    #     num = np.sqrt(np.power(n1,2).sum())
+    #
+    #     tmp = np.hstack([times[0,i,g1], times[1,i,g2]]) - np.mean(np.hstack([times[0,i,g1], times[1,i,g2]]))
+    #     denom = np.sqrt(np.power(tmp, 2).sum())
+    #
+    #     if i == 0:
+    #         print(n1)
+    #         print(num)
+    #         print(tmp)
+    #         print(denom)
+    #
+    #     sdfc[i] = np.divide(num, denom)
+
+    #print(np.hstack([xfit[0,0,g1], xfit[1,0,g2]]) - np.hstack([counts[0,0,g1], counts[1,0,g2]]))
+
+    # two_d = (n_samples, 2*n_timepts)
+
+    counts_masked = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask))
+    xfit_masked = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask))
+    time_masked = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask))
+
+    n = xfit_masked - counts_masked
+    num = np.sqrt(np.power(n,2).sum(axis=1))
+
+    d = time_masked - time_masked.mean(axis=1)[...,np.newaxis]
+    denom = np.sqrt(np.power(d, 2).sum(axis=1))
+
+    sdfc = np.divide(num, denom).data
+    sdfc[allbad] = 0.1
+
+    has_sd = df > 0
+    median_sd = np.median(sdfc[has_sd])
+    sdfc[~has_sd] = median_sd
 
     df_masked = np.ma.array(data=df, mask=~(df > 0))
 
@@ -160,8 +227,12 @@ def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     p_t = np.array([2*t.cdf(-abs(i),j) if j > 0 else 1 for i,j in zip(tstat, df)])
 
     qvalue = importr('qvalue')
-    r_pt = numpy2ri(p_t) #Missing has_sd
-    lfdr = np.array(qvalue.lfdr(r_pt, method="bootstrap"))
+    r_pt = numpy2ri(p_t[has_sd]) #Missing has_sd
+
+    lfdr = np.ones((n_samples))
+    lfdr[has_sd] = np.array(qvalue.lfdr(r_pt, method="bootstrap"))
+
+    return ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask
 
 
 if __name__ == "__main__":
