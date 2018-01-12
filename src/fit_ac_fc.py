@@ -113,6 +113,23 @@ def prep_input(abundance_file, counts_file):
 
     return ab, counts, good_names
 
+def _validate_counts(counts, replicate_axis=0, samples_axis=1, timepoints_axis=2):
+    if not isinstance(counts, np.ndarray):
+        raise ValueError('Please input a numpy array for counts!')
+
+    if counts.ndim not in [2,3]:
+        raise ValueError('counts need to be 2D or 3D numpy array!')
+
+    if counts.ndim == 2:
+        counts = counts.reshape((1, counts.shape[samples_axis], counts.shape[timepoints_axis]))
+
+    elif counts.ndim == 3:
+        s = counts.shape
+        new_shape = (s[replicate_axis], s[samples_axis], s[timepoints_axis])
+        counts = counts.reshape(new_shape)
+
+    return counts
+
 def _validate_time(counts_shape, times):
     n_reps, n_samples, n_timepts = counts_shape
 
@@ -143,21 +160,45 @@ def _validate_time(counts_shape, times):
 #     return abundance.reshape((n_reps, n_timepts))
 
 
-def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
+def fit_ac_fc(abundance, counts, times, n_good=2,
+                replicate_axis=0, samples_axis=1, timepoints_axis=2,
+                keep_names=False):
     '''fit_ac_fc
 
     This is a line by line recapitulation of Amanda's code (vectorized using
     matrix multiplication implemented in python).
 
+    Counts is expected to be a two (assumed to be without replicates) or three
+    dimensional array.
+
+    If counts is 2D, samples_axis and timepoints_axis will be required to avoid
+    indexing error!
+
+    keep_names:
+        - Used if abundance and counts are file locations. The names are expected
+          to be in the files, and if keep_names is True, the names will be returned
+          in the return statement. Else it will be thrown away
+
     TODO: Figure out why lfdr is different
     TODO: Reimplement lfdr in python
     TODO: Refactor
+    TODO: Update Docstrings
     TODO: Confirm input output formats
 
     Note: validation is based on the counts_file'''
 
-    ab, counts, names = prep_input(abundance_file, counts_file)
+    try:
+        assert type(abundance) == type(counts)
+    except AssertionError:
+        raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
+
+    if isinstance(abundance, str):
+        abundance, counts, names = prep_input(abundance, counts)
+
+    counts = _validate_counts(counts)
+
     n_reps, n_samples, n_timepts = counts.shape
+    ab = abundance #TODO: Change ab
 
     times = _validate_time(counts.shape, times)
     #ab = _validate_abundance(counts.shape, ab)
@@ -224,8 +265,13 @@ def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     lfdr = np.ones((n_samples))
     lfdr[has_sd] = np.array(qvalue.lfdr(r_pt, method="bootstrap")) #NOTE: Still deviates from ctg
 
+    #For debugging
     #return ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask
-    return ac, fc, allbad, sdfc, df, p_t, lfdr, names
+
+    if keep_names:
+        return ac, fc, allbad, sdfc, df, p_t, lfdr, names
+    else:
+        return ac, fc, allbad, sdfc, df, p_t, lfdr
 
 
 if __name__ == "__main__":
