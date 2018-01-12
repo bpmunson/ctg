@@ -113,27 +113,64 @@ def prep_input(abundance_file, counts_file):
 
     return ab, counts, good_names
 
-def _sqrtsum(x):
-    if not isinstance(x, np.ndarray):
-        x = np.array(x)
+def _validate_time(counts_shape, times):
+    n_reps, n_samples, n_timepts = counts_shape
 
-    x_sq = np.power(x,2)
-    return np.sqrt(x_sq.sum())
+    if n_timepts not in times.shape:
+        raise ValueError('Inconsistent times dimensions!')
+
+    if len(times.shape) > 3:
+        raise ValueError('Times have too many dimensions')
+
+    elif len(times.shape) == 1:
+        times = repmat(times, n_samples, n_reps).reshape(counts_shape)
+
+    elif len(times.shape) == 2:
+        times = repmat(times, n_samples, 1).reshape(counts_shape)
+
+    elif len(times.shape) == 3:
+        times = times.rehsape(counts_shape)
+
+    return times
+
+# def _validate_abundance(counts_shape, abundance):
+#     n_reps, n_samples, n_timepts = counts_shape
+#     a,b = abundance.shape
+#
+#     if a not in counts_shape or b not in counts_shape:
+#         raise ValueError('Inconsistent abundance dimensions!')
+#
+#     return abundance.reshape((n_reps, n_timepts))
+
 
 def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
-    #TODO: Validation code here of the input shapes
-    #TODO: Fix Names
+    '''fit_ac_fc
+
+    This is a line by line recapitulation of Amanda's code (vectorized using
+    matrix multiplication implemented in python).
+
+    TODO: Figure out why lfdr is different
+    TODO: Reimplement lfdr in python
+    TODO: Refactor
+    TODO: Confirm input output formats
+
+    Note: validation is based on the counts_file'''
 
     ab, counts, names = prep_input(abundance_file, counts_file)
     n_reps, n_samples, n_timepts = counts.shape
 
+    times = _validate_time(counts.shape, times)
+    #ab = _validate_abundance(counts.shape, ab)
+
     bad = (counts > ab).sum(axis=2) < n_good
     allbad = bad.all(axis=0)
 
-    times = repmat(times, n_samples, 1).reshape(counts.shape)
+    mask = counts > ab
+    useless = mask.sum(axis=2) < 2 #NOTE: Not sure this is needed
+    mask[useless] = False
 
-    counts_masked = np.ma.array(data=counts, mask=~(counts > ab))
-    time_masked = np.ma.array(data=times, mask=~(counts > ab))
+    counts_masked = np.ma.array(data=counts, mask=~mask)
+    time_masked = np.ma.array(data=times, mask=~mask)
 
     mean_counts = np.ma.mean(counts_masked, axis=2).data
     mean_time = np.ma.mean(time_masked, axis=2).data
@@ -152,65 +189,20 @@ def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times).sum(axis=1))
     xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis].transpose(0,2,1)
 
-    #TODO: Move this mask up
-    mask = counts > ab
-    useless = mask.sum(axis=2) < 2
-    mask[useless] = False
-
     df = mask.sum(axis=2).sum(axis=0) - 2
     df[allbad] = 0
 
-    counts_masked = np.ma.array(data=counts, mask=~mask)
-    xfit_masked = np.ma.array(data=xfit, mask=~mask)
-    time_masked = np.ma.array(data=times, mask=~mask)
+    counts_masked_2d = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask))
+    xfit_masked_2d = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask))
+    time_masked_2d = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask))
 
-    # numerator = np.sqrt(np.power(xfit_masked - counts_masked, 2).sum(axis=2).sum(axis=0))
-    # denominator = np.sqrt(np.power(time_masked - time_masked.mean(axis=2)[...,np.newaxis], 2).sum(axis=2).sum(axis=0))
-    #
-    # sdfc = np.divide(numerator.data,denominator.data)
-    # sdfc[allbad] = 0.1
-    #
-    # has_sd = df > 0
-    # median_sd = np.median(sdfc[has_sd])
-    # sdfc[~has_sd] = median_sd
-
-    # sdfc = np.array([0.1]*n_samples)
-    # for i in range(0,n_samples):
-    #     if allbad[i]:
-    #         continue
-    #
-    #     g1 = mask[0][i, :]
-    #     g2 = mask[1][i, :]
-    #
-    #     n1 = np.hstack([xfit[0,i,g1], xfit[1,i,g2]]) - np.hstack([counts[0,i,g1], counts[1,i,g2]])
-    #
-    #     num = np.sqrt(np.power(n1,2).sum())
-    #
-    #     tmp = np.hstack([times[0,i,g1], times[1,i,g2]]) - np.mean(np.hstack([times[0,i,g1], times[1,i,g2]]))
-    #     denom = np.sqrt(np.power(tmp, 2).sum())
-    #
-    #     if i == 0:
-    #         print(n1)
-    #         print(num)
-    #         print(tmp)
-    #         print(denom)
-    #
-    #     sdfc[i] = np.divide(num, denom)
-
-    #print(np.hstack([xfit[0,0,g1], xfit[1,0,g2]]) - np.hstack([counts[0,0,g1], counts[1,0,g2]]))
-
-    # two_d = (n_samples, 2*n_timepts)
-
-    counts_masked = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask))
-    xfit_masked = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask))
-    time_masked = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask))
-
-    n = xfit_masked - counts_masked
+    n = xfit_masked_2d - counts_masked_2d
     num = np.sqrt(np.power(n,2).sum(axis=1))
 
-    d = time_masked - time_masked.mean(axis=1)[...,np.newaxis]
+    d = time_masked_2d - time_masked_2d.mean(axis=1)[...,np.newaxis]
     denom = np.sqrt(np.power(d, 2).sum(axis=1))
 
+    #NOTE: Hardcode
     sdfc = np.divide(num, denom).data
     sdfc[allbad] = 0.1
 
@@ -230,9 +222,10 @@ def fit_ac_fc(abundance_file, counts_file, times, n_good=2):
     r_pt = numpy2ri(p_t[has_sd]) #Missing has_sd
 
     lfdr = np.ones((n_samples))
-    lfdr[has_sd] = np.array(qvalue.lfdr(r_pt, method="bootstrap"))
+    lfdr[has_sd] = np.array(qvalue.lfdr(r_pt, method="bootstrap")) #NOTE: Still deviates from ctg
 
-    return ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask
+    #return ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask
+    return ac, fc, allbad, sdfc, df, p_t, lfdr, names
 
 
 if __name__ == "__main__":
