@@ -3,4 +3,4 @@ __pycache__
 *DS_Store*
 
 # Test file formats
-*.csv 
+#*.csv 
