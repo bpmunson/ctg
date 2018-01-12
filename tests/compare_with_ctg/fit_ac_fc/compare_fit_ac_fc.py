@@ -12,7 +12,8 @@ abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds.txt")
 counts_file = os.path.join(config.A549_test, "A549_timepoint_counts.txt")
 times = np.array([[3,14, 21, 28], [3,14,21,28]])
 
-ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask = fit_ac_fc(abundance_file, counts_file, times)
+#ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask = fit_ac_fc(abundance_file, counts_file, times)
+ac, fc, allbad, sdfc, df, p_t, lfdr = fit_ac_fc(abundance_file, counts_file, times)
 
 filesList = ['a1_ctg.csv',
              'a2_ctg.csv',
@@ -111,6 +112,6 @@ if __name__ == "__main__":
     compare_p_t()
     #compare_lfdr()
 
-    _compare_lambda()
-    _compare_xfit()
-    _compare_mask()
+    # _compare_lambda()
+    # _compare_xfit()
+    # _compare_mask()
