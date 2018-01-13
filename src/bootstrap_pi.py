@@ -212,7 +212,6 @@ def run_iteration(fc, pp, sdfc, w0, probes,
     # return results of bootstrap
     return pi_iter, fitness_iter 
 
-
 def compute_fdr(pi_iter):
     from statsmodels.distributions.empirical_distribution import ECDF
 
@@ -227,7 +226,6 @@ def compute_fdr(pi_iter):
     fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)), index=pi_mean.index, columns=['fdr_left','fdr_right'])
 
     return fdr
-
 
 def summarize(pi_iter, fitness_iter, pp):
 
@@ -261,8 +259,8 @@ def summarize(pi_iter, fitness_iter, pp):
     x = pd.concat([pi_mean, fdr, sd, z, pp])
 
     # add genes as their own columns
-    x.loc[:,'geneA'] = x.loc(axis=0)[,'target_id_1']
-    x.loc[:,'geneB'] = x.loc(axis=0)[,'target_id_2']
+    x.loc[:,'geneA'] = x.loc(axis=0)[:,'target_id_1']
+    x.loc[:,'geneB'] = x.loc(axis=0)[:,'target_id_2']
 
     # merge in gene fitnesses
     x = pd.merge(x, fitness_mean, left_on='geneA', right_index=True, how="left")
@@ -331,7 +329,11 @@ if __name__ == "__main__":
 										maxiter=options.max_irls_iter,
 										verbose=options.verbose)
 
-    mean_pi, mean_fitness = compute_mean(pi_iter, fitness_iter)
+    #mean_pi, mean_fitness = compute_mean(pi_iter, fitness_iter)
+    if options.output:
+        pi_iter.to_csv(os.path.join(options.output, "TestSet8_pi_scores_iter.csv"), sep=",")
+        target_fitness.to_csv(os.path.join(options.output, "TestSet8_f_fitness_iter.csv"), sep=",")
+        
     if options.verbose:
         print("Pi scores:")
         print(mean_pi.head())

@@ -204,6 +204,49 @@ def ansatz_target_fitness(fpr, n_probes_per_target=2):
 
     return target_fitness
 
+
+def magnitude_construct_weights(fpr, n_probes_per_construct=2):
+    """ Use product of magnitude from zero as the weight """
+
+    df = fpr.copy()
+
+    # just like before have the option to zero out the worst performing probe for a given gene
+    df.loc[:,'ranks_adj'] = n_probes_per_target + 1 - df.loc[:,'ranks']
+
+    # zero out the negatives
+    df['rank_adjusted'][ df['rank_adjusted'] < 0 ] = 0
+    df['fitness'      ][ df['rank_adjusted'] < 0 ] = 0
+
+    construct_weights = np.outer(df['fitness'], df['fitness'])
+
+    return construct_weights
+
+def magnitude_target_fitness(fpr, n_probes_per_target):
+    """ Use the product of magnitude from zero as the weight """
+
+    # make copy of input dataframe
+    df = fpr.copy()
+
+    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
+    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
+    df['rank_adjusted'] = (n_probes_per_target + 1 - df['rank'])
+
+    # zero out negatives
+    df['rank_adjusted'][ df['rank_adjusted'] < 0 ] = 0
+    df['fitness'][ df['rank_adjusted'] < 0 ] = 0
+
+    # square the ranks to get weights
+    df['weighted_fitness'] = df['fitness']**2
+
+    # multiply the probe fitness by the assigned rank weights
+    df['weighted_fitness'] = df['fitness'] * df['rank_weight']
+
+    # get target weighted fitness as the weighted mean of probe fitnesses
+    target_fitness = df.groupby('target_id')['weighted_fitness'].sum() / df.groupby('target_id')['fitness'].sum()
+
+    return target_fitness
+
+
 def weight_by_target( eij, fp, w0, probes,
     n_probes_per_target=2,
     epsilon = 1e-6,
