@@ -12,6 +12,19 @@ from rpy2 import robjects
 from rpy2.robjects.packages import importr
 from rpy2.robjects.numpy2ri import numpy2ri
 
+'''
+The file format below is hardcoded for Amanda's files. This can be changed by
+later by passing a global config object for the run (or just additional
+function argumments).
+
+Currently, the time points should be of the format
+
+construct_id    probe_a_id      probe_b_id      target_a_id     target_b_id     {NAME}_T{DAYS}_{REP}
+
+In addition, reps are defined to be the first set of levels in the loading functions
+
+'''
+
 def _load_abundance_thresholds(fn, sep='\s+'):
     """Loads abundance thresholds.
 
@@ -108,8 +121,8 @@ def prep_input(abundance_file, counts_file):
 
     ab0 = pd.Series(ab.values.ravel() - np.log2(abundance.values), index=abundance.index)
 
-    counts = np.array([y[1].values, y[2].values])
-    ab = np.array([ab0[1].values, ab0[2].values])[...,np.newaxis].transpose(0,2,1)
+    counts = np.array([y[i].values for i in y.columns.levels[0]]) # Assume 'reps' to be the first set of levels (see above)
+    ab = np.array([ab0[i].values for i in ab0.index.levels[0]])[...,np.newaxis].transpose(0,2,1) #ditto
 
     return ab, counts, good_names
 
@@ -275,8 +288,16 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
 
 
 if __name__ == "__main__":
-    abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds.txt")
-    counts_file = os.path.join(config.A549_test, "A549_timepoint_counts.txt")
-    times = np.array([[3,14, 21, 28], [3,14,21,28]])
+    # abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds.txt")
+    # counts_file = os.path.join(config.A549_test, "A549_timepoint_counts.txt")
+    # times = np.array([[3,14, 21, 28], [3,14,21,28]])
+    #
+    # fit_ac_fc(abundance_file, counts_file, times)
 
+
+    abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds_rep1.txt")
+    counts_file = os.path.join(config.A549_test, "A549_timepoint_counts_rep1.csv")
+    times = np.array([3,14,21,28])
+
+    #prep_input(abundance_file, counts_file)
     fit_ac_fc(abundance_file, counts_file, times)
