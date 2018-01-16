@@ -1,0 +1,5 @@
+sampleName	log2CountsThresh
+testing_T3_1	3.335947027289075
+testing_T14_1	3.338279978323132
+testing_T21_1	4.525
+testing_T28_1	4.225
