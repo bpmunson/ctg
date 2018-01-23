@@ -21,6 +21,7 @@ import pandas as pd
 import numpy as np
 
 
+
 def load_matrix_csv(fp, sep=",", index_col=0, header=0):
     """ Loads precomputed constuct fitnesses from a csv file
     """
@@ -207,27 +208,49 @@ if __name__ == "__main__":
     # set up argument parser
     parser = argparse.ArgumentParser(usage = globals()['__doc__'])
     parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output")
-    parser.add_argument("-f", "--construct_fitness", action="store", default=None, required=True, \
+    parser.add_argument("-f", "--construct_fitness", action="store", default=None, \
                         help="Path to construct fitness matrix.")
-    parser.add_argument("-w", "--construct_weights", action="store", default=None, required=True, \
+    parser.add_argument("-w", "--construct_weights", action="store", default=None, \
                         help="Path to construct weights.")
     parser.add_argument("-o", "--output", action="store", default=None, \
                         help="Directory to write results to.")
-    parser.add_argument("-a", "--n_stds", action="store", default=2, \
+    parser.add_argument("--n_stds", action="store", default=2, \
                         help="Number of standard deviation to use in Tukey biweight normalization.")
     parser.add_argument("--tol", action="store", default=1e-3, \
                         help="Relative error tolerance")
     parser.add_argument("--maxiter", action="store", default=50, \
                         help="Maximum iterations to perform")
+
+    parser.add_argument("-a", "--abundance", action="store", default=None, \
+                        help="Path to abundance threshold input file.")
+    parser.add_argument("-c", "--counts", action="store", default=None, \
+                        help="Path to timepoint counts input file.")
+    parser.add_argument("-t", "--times", action="store", default="3,14,21,48", \
+                        help="Comma separated list of timepoints to use.")
+
     # parse arguments
     options = parser.parse_args()
 
-    if not options.construct_fitness and not options.construct_weights:
-        raise BaseException("No input files provided.")
+    if options.counts:
+        if not options.abundance:
+            raise BaseException("Please provide both a counts file and an abundance file.")
+        run_construct_fitting = True
+    elif options.construct_fitness
+        if not options.construct_weights:
+            raise BaseException("Please provide both a construct fitness and a weights file.")
+        run_construct_fitting = False
+    else:
+        raise BaseException("Must provide either a counts and abundance files or construct fitness and weights files.")
 
-    # load input files
-    fc = load_matrix_csv(options.construct_fitness)
-    w0 = load_matrix_csv(options.construct_weights)
+    if run_construct_fitting:
+        ac, fc, allbad, sdfc, df, p_t, lfdr, names =  fit_ac_fc(options.abundance, options.counts, options.times.split(","))
+        df = merge_fit_ac_fc_results(fc, allbad, sdfc, p_t, names)
+        fc = get_symmetric_matrix_from_long(df, variable = 'fc', return_dataframe=False)
+        w0 = get_initial_weights(df, return_dataframe=False)
+    else:
+        # load input files
+        fc = load_matrix_csv(options.construct_fitness)
+        w0 = load_matrix_csv(options.construct_weights)
 
     # compute
     fp, fij, eij = irls(fc, w0,
