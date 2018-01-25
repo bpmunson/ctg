@@ -25,15 +25,6 @@ import numpy as np
 from irls import *
 
 
-def load_library_file(fp, sep="\t", index_col=0, header=0, comment="#"):
-    """ Loads libary definition from a csv file
-
-        TODO: assert this is a good library file, ie at a very mimumum validate the expected header
-
-    """
-    library = pd.read_csv(fp, sep=sep, index_col=index_col, header = header, comment=comment)
-    return library
-
 def get_null_array( df, null_target_id = "NonTargetingControl"):
     """ Get the null array corresponding to rows of non targeting probes
     Args: 
@@ -50,52 +41,6 @@ def get_null_array( df, null_target_id = "NonTargetingControl"):
     else:
         raise(KeyError("No null targets found corresponding to '{}'".format(null_target_id)))
     return null_df
-
-def add_target_to_probe_index(index,  
-    library=None,
-    library_file=None, \
-    null=True,
-    null_target_regex="NonTargetingControl",
-    null_target_id="NonTargetingControl" ):
-    """Description
-    """
-    if library is None:
-        if library_file is None:
-            raise BaseException("Must supply either a libary dataframe or a path to the library definition csv.")
-
-        library = load_library_file(library_file)
-
-    # TODO: remove this dependenacy of a 0 start from the input files
-    #index = pd.Index([re.sub("0NonTargeting", "NonTargeting", i) for i in index] )
-
-    # make a dataframe from the index
-    i = pd.DataFrame(index, columns=['idx'])
-
-    # get only relvant columns from the library definition
-    libr_a = library[['probe_a_id','target_a_id']]
-    libr_a.columns = ['probe_id','target_id']
-    libr_b = library[['probe_b_id','target_b_id']]
-    libr_b.columns = ['probe_id','target_id']
-    libr = pd.concat([libr_a, libr_b])
-    libr = libr.reset_index(drop=True)
-    lib = libr.drop_duplicates()
-
-    if null:
-        # try and replace null targets
-        # TODO: this raises a copy slice warning...
-        lib['target_id'].replace(".*{}.*".format(null_target_regex), null_target_id, regex=True, inplace=True)
-        # check to see if we found any
-        if not (lib['target_id'] == null_target_id ).any():
-            raise(KeyError("No null probes found corresponding to '{}'.".format(null_target_regex)))
-
-    # merge the two together on probe_id
-    res = pd.merge(i, lib, left_on="idx", right_on="probe_id", how="left")
-
-    # set the index on the merge datfrmae 
-    res.set_index(['probe_id','target_id'], inplace = True)
-
-    # return the new index
-    return res.index
 
 def rank_probes(fp, null=True, null_target_id = "NonTargetingControl"):
     """Rank the probes by deviation from zero
@@ -204,7 +149,6 @@ def ansatz_target_fitness(fpr, n_probes_per_target=2):
 
     return target_fitness
 
-
 def magnitude_construct_weights(fpr, n_probes_per_construct=2):
     """ Use product of magnitude from zero as the weight """
 
@@ -246,12 +190,9 @@ def magnitude_target_fitness(fpr, n_probes_per_target):
 
     return target_fitness
 
-
-def weight_by_target( eij, fp, w0, probes,
+def weight_by_target( eij, fp, w0, probes, targets,
     n_probes_per_target=2,
     epsilon = 1e-6,
-    library_file="~/dual_crispr/library_definitions/test_library_2.txt",
-    null_target_regex="NonTargetingControl",
     null_target_id="NonTargetingControl",
     null = True,
     fp_0 = None
@@ -275,19 +216,11 @@ def weight_by_target( eij, fp, w0, probes,
         target_fitnesses (pandas series): a named series containing gene/target fitnesses 
     """
 
+    # make index out of targets and probes
+    fp_index = pd.MultiIndex.from_tuples([(probes[i], targets[i]) for i in range(len(probes))],names=['probe_id','target_id'])
+
     # make a dataframe out of the probe fitnesses
-    fp = pd.DataFrame(fp, index=probes, columns=['fitness'])
-
-    # get the lbrary definitions file 
-    library = load_library_file(library_file, sep="\t", header=0, index_col=0, comment="#")
-
-    # add target id to probe fitness dataframe
-    # while change the NonTargeting names to NULL
-    fp.index = add_target_to_probe_index(   fp.index,
-                                            library=library,
-                                            null=null,
-                                            null_target_id = null_target_id,
-                                            null_target_regex=null_target_regex)
+    fp = pd.DataFrame(fp, index=fp_index, columns=['fitness'])
 
     if null:
         # get null mean
@@ -299,19 +232,7 @@ def weight_by_target( eij, fp, w0, probes,
     # use the precompute ranks instead of those calculated here
     if fp_0 is not None:
         # TODO: clean up this repeat of code, don't recalculate the rankings everytime?
-        # make a dataframe out of the probe fitnesses
-        fp_0 = pd.DataFrame(fp_0, index=probes, columns=['fitness'])
-
-        # get the lbrary definitions file 
-        library = load_library_file(library_file, sep="\t", header=0, index_col=0, comment="#")
-
-        # add target id to probe fitness dataframe
-        # while change the NonTargeting names to NULL
-        fp_0.index = add_target_to_probe_index(   fp_0.index,
-                                                library=library,
-                                                null=null,
-                                                null_target_id = null_target_id,
-                                                null_target_regex=null_target_regex)
+        fp_0 = pd.DataFrame(fp_0, index=fp_index, columns=['fitness'])
 
         if null:
             # get null mean

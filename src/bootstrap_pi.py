@@ -22,15 +22,31 @@ rpy2.robjects.numpy2ri.activate()
 from irls import *
 from weighted_pi import *
 
-def bootstrap(fc, pp, sdfc, w0, probes, 
+from statsmodels.distributions.empirical_distribution import ECDF
+
+def _build_target_array(probes, names):
+    """ Description
+    """
+
+    # get a list of all probes to targets from names datafame
+    a = names[['probe_a_id','target_a_id']]
+    b = names[['probe_b_id','target_b_id']]
+    a.columns = ['probe_id','target_id']
+    b.columns = ['probe_id','target_id']
+    c = pd.concat([a,b],axis=0).drop_duplicates()
+
+    # merge together and take target ids
+    targets = np.array(pd.merge(pd.DataFrame(probes,columns=['probe_id']), c)['target_id'])
+    return targets
+
+
+def bootstrap(fc, pp, sdfc, w0, probes, targets,
     ag=2,
     tol=1e-3, 
     seed=None,
     maxiter=50,
     n_probes_per_target=2,
     epsilon = 1e-6,
-    library_file="~/dual_crispr/library_definitions/test_library_2.txt",
-    null_target_regex="NonTargetingControl",
     null_target_id="NonTargetingControl",
     null = True,
     verbose = False,
@@ -55,11 +71,6 @@ def bootstrap(fc, pp, sdfc, w0, probes,
         ag (int):       Which dimension to aggregate data across
         tol (float):    The error tolerance threshold which stops the iteration.
         maxit (int):    The maximum number of iterations to perform should 'tol' never be satisfied.
-
-
-
-
-
     """
     fc_0 = np.triu(fc)
     sdfc_0 = np.triu(sdfc)
@@ -91,9 +102,7 @@ def bootstrap(fc, pp, sdfc, w0, probes,
             }
             ''')
         r_fc = rpy2.robjects.r['gen_fc1']
-
-        fc_1 = np.array(r_fc(fc_0,sdfc_0, pp_0, seed))
-        print(fc_1[:5,:5])
+        fc_1 = np.array(r_fc(fc_0, sdfc_0, pp_0, seed))
     else:  
         # get random noise 
         if seed:
@@ -120,6 +129,7 @@ def bootstrap(fc, pp, sdfc, w0, probes,
     # get unweighted estimates using bootstrapped construct fitnesses
     fp, fij, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
 
+
     if use_full_dataset_for_ranking:
         # get unweighted estimates for full dataset 
         # TODO: really shouldn't be running this on everybootstrap
@@ -128,10 +138,8 @@ def bootstrap(fc, pp, sdfc, w0, probes,
         fp_0 = None
         
     # get weighted pi scores and target fitness 
-    pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes,
+    pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, targets,
                                                 n_probes_per_target=n_probes_per_target,
-                                                library_file = library_file,
-                                                null_target_regex = null_target_regex,
                                                 null_target_id = null_target_id,
                                                 null = null,
                                                 fp_0 = fp_0
@@ -141,19 +149,15 @@ def bootstrap(fc, pp, sdfc, w0, probes,
 
     return pi_scores, target_fitness
 
-def run_iteration(fc, pp, sdfc, w0, probes,
+def run_iteration(fc, pp, sdfc, w0, probes, targets,
     ag=2,
     tol=1e-3, 
-    seed=None,
     maxiter=50,
     n_probes_per_target=2,
     epsilon = 1e-6,
-    library_file="~/dual_crispr/library_definitions/test_library_2.txt",
-    null_target_regex="NonTargetingControl",
     null_target_id="NonTargetingControl",
     null = True,
     niter=2,
-    use_seed=False,
     verbose=False,
     testing=False,
     use_full_dataset_for_ranking = True
@@ -179,23 +183,25 @@ def run_iteration(fc, pp, sdfc, w0, probes,
     while counter < niter:
         counter += 1
 
-        if use_seed:
+        if verbose:
+            print('Performing iteration: {}'.format(counter))
+        if testing:
         	seed = counter
         else:
         	seed = None
 
-        pi_scores, target_fitness = bootstrap(fc, pp, sdfc, w0, probes, 
-                                                ag=ag, tol=tol, library_file=library_file, 
+        pi_scores, target_fitness = bootstrap(fc, pp, sdfc, w0, probes, targets,
+                                                ag=ag,
+                                                tol=tol,
                                                 seed=seed,
                                                 maxiter=maxiter,
                                                 n_probes_per_target=n_probes_per_target,
                                                 epsilon = epsilon,
-                                                null_target_regex=null_target_regex,
                                                 null_target_id=null_target_id,
                                                 null = null,
                                                 verbose = verbose,
                                                 testing= testing,
-    						use_full_dataset_for_ranking = use_full_dataset_for_ranking
+    						                    use_full_dataset_for_ranking = use_full_dataset_for_ranking
                                                 )
         # add column labels corresponding to bootstrap
         pi_scores.columns = [counter]
@@ -227,44 +233,38 @@ def compute_fdr(pi_iter):
 
     return fdr
 
-def summarize(pi_iter, fitness_iter, pp):
+def summarize(pi_iter, fitness_iter):
 
-    from statsmodels.distributions.empirical_distribution import ECDF
-
-    fitness_mean = fitness_iter.mean(axis=1)
+    
+    fitness_mean = fitness_iter.mean(axis=1).to_frame()
     pi_mean = pi_iter.mean(axis=1)
-    pi_iter_null = pi_iter.subtract(pi_mean, axis=0).values.flatten()
+    pi_iter_null = pi_iter.subtract(pi_mean, axis=0)
 
-    enull = ECDF( np.concatenate((pi_iter_null, - pi_iter_null)) )
+    enull = ECDF( np.concatenate((pi_iter_null.values.flatten(), - pi_iter_null.values.flatten())) )
     emean = ECDF( pi_mean )
 
     fdr_left = np.minimum(1, enull(pi_mean)/emean(pi_mean))
     fdr_right = np.minimum(1, enull(-pi_mean)/(1-emean(pi_mean)))
     fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)), index=pi_mean.index, columns=['fdr_left','fdr_right'])
 
-
-    # get fdr for pairs
-    fdr = compute_fdr(pi_iter)
+    # get per pair sd
+    sd = pi_iter.std(axis=1)
 
     # calculate z score
-    sd = pi_mean.sd()
-    sd = sd.to_frame(columns=['std'])
-    z = pi_mean.divide(sd)
-    z = z.to_frame(columns=['Z'])
+    pi_mean_sd = np.std(pi_mean)
+    z = pi_mean.divide(pi_mean_sd)
 
     # compute posterior probability
-    pp = (pi_iter_null<pi_mean.abs()).mean(axis=1)
-    
-    # concatenate together
-    x = pd.concat([pi_mean, fdr, sd, z, pp])
+    pp = pi_iter_null.abs().lt(pi_mean.abs(), axis=0).mean(axis=1)
 
-    # add genes as their own columns
-    x.loc[:,'geneA'] = x.loc(axis=0)[:,'target_id_1']
-    x.loc[:,'geneB'] = x.loc(axis=0)[:,'target_id_2']
+    # concatenate together
+    x = pd.concat([pi_mean, fdr, sd, z, pp], axis=1)
+    x = x.reset_index()
 
     # merge in gene fitnesses
-    x = pd.merge(x, fitness_mean, left_on='geneA', right_index=True, how="left")
-    x = pd.merge(x, fitness_mean, left_on='geneB', right_index=True, how="left")
+    x = pd.merge(x, fitness_mean, left_on='target_id_1', right_index=True, how="left")
+    x = pd.merge(x, fitness_mean, left_on='target_id_2', right_index=True, how="left")
+    x.columns = ['geneA','geneB','pi_mean', 'fdr_left', 'fdr_right', 'sd', 'z', 'pp', 'fA','fB']
 
     return x
 
@@ -290,6 +290,8 @@ if __name__ == "__main__":
                         help="Number of bootstrap iterations to perform")
     parser.add_argument("--use_set_seed", action="store_true", default=False, \
                         help="Flag to use predefined seed for testing purposes.")
+
+
     parser.add_argument("-f", "--construct_fitness", action="store", default=None, required=True, \
                         help="Path to construct fitness matrix.")
     parser.add_argument("-s", "--construct_fitness_std", action="store", default=None, required=True, \
@@ -298,9 +300,11 @@ if __name__ == "__main__":
                         help="Path to pi score posteriors.")
     parser.add_argument("-w", "--construct_weights", action="store", default=None, required=True, \
                         help="Path to construct weights.")
-    parser.add_argument("-l", "--library_file", action="store", required=True, \
-                        default="~/dual_crispr/library_definitions/test_library_2.txt", \
-                        help="Path to library defintion.")
+
+    parser.add_argument("-c", "--time_point_counts", action="store", default=None, required=True, \
+                        help="Path to timepoint counts file.")
+
+
     # parse arguments
     options = parser.parse_args()
 
@@ -313,17 +317,14 @@ if __name__ == "__main__":
     sdfc = load_matrix_csv(options.construct_fitness_std)
     pp = load_matrix_csv(options.posterior_probability)
 
+
     # TODO: functionalize the probe label loadings
     probes = list(pd.read_csv(options.construct_fitness, header=0, index_col=0).columns)
-
-
-
+    targets = _build_target_array(probes, pd.read_csv(options.time_point_counts, header=0))
 
     # bootstrap weighted estimates
-    pi_iter, fitness_iter = run_iteration(fc, pp, sdfc, w0, probes,
+    pi_iter, fitness_iter = run_iteration(fc, pp, sdfc, w0, probes, targets,
                                         ag=options.n_stds, tol=options.tol, 
-                                        library_file=options.library_file,
-                                        use_seed = options.use_set_seed,
     									n_probes_per_target = options.n_probes_per_target,
 										niter=options.bootstrap_iterations,
 										maxiter=options.max_irls_iter,

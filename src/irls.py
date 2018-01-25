@@ -235,7 +235,7 @@ if __name__ == "__main__":
         if not options.abundance:
             raise BaseException("Please provide both a counts file and an abundance file.")
         run_construct_fitting = True
-    elif options.construct_fitness
+    elif options.construct_fitness:
         if not options.construct_weights:
             raise BaseException("Please provide both a construct fitness and a weights file.")
         run_construct_fitting = False
