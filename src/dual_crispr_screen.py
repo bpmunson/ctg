@@ -10,8 +10,9 @@ import weighted_pi
 import bootstrap_pi
 
 
-class Options(obeject):
+class Options(object):
 	def __init__(self):
+
 		###########################################
 		# defaults
 		###########################################
@@ -42,6 +43,8 @@ class Screen(object):
 		self.timepoint_counts_file = timepoint_counts_file
 		self.times = times
 
+		# initialize default options
+		# TODO: allow for argparse, config, and setting of options upon initialization
 		self.options = Options()
 
 		###########################################
@@ -73,10 +76,10 @@ class Screen(object):
 		ac, fc, allbad, sdfc, df, p_t, lfdr, names = fit_ac_fc.fit_ac_fc(self.abundance_file,
 																		 self.timepoint_counts_file,
 																		 self.times,
-																		 n_good = self.n_good,
-																		 replicate_axis = self.replicate_axis,
-																		 samples_axis = self.samples_axis,
-																		 timepoints_axis = self.timepoints_axis,
+																		 n_good = self.options.n_good,
+																		 replicate_axis = self.options.replicate_axis,
+																		 samples_axis = self.options.samples_axis,
+																		 timepoints_axis = self.options.timepoints_axis,
 																		 keep_names=True)
 		
 
@@ -97,7 +100,7 @@ class Screen(object):
 		# get and store target ids
 		self.targets = self._build_target_array()
 
-		if self.testing:
+		if self.options.testing:
 			# reorder according to RS/AB for testing purposes
 			# this is required because of the random number generator needs the same format
 			benchmark = '~/crappy/data/test_data/output_data/Notebook8Test_fc_0_benchmark.csv'
@@ -127,10 +130,10 @@ class Screen(object):
 		# run irls
 		fp, fij, eij = irls.irls(self.fc.values,
 								 self.w0.values,
-								 ag = self.n_stds,
-								 tol = self.tol,
-								 maxiter = self.maxiter,
-								 verbose = self.verbose)
+								 ag = self.options.n_stds,
+								 tol = self.options.tol,
+								 maxiter = self.options.maxiter,
+								 verbose = self.options.verbose)
 		
 		# store results
 		self.fp = fp
@@ -149,9 +152,9 @@ class Screen(object):
 													self.w0.values,
 													self.probes,
 													self.targets,
-													n_probes_per_target=self.n_probes_per_target,
-													null_target_id = self.null_target_id,
-													null = self.null_aware,
+													n_probes_per_target=self.options.n_probes_per_target,
+													null_target_id = self.options.null_target_id,
+													null = self.options.null_aware,
 													fp_0 = None
 													)
 
@@ -168,17 +171,17 @@ class Screen(object):
 															self.w0.values,
 															self.probes,
 															self.targets,
-															ag = self.n_stds,
-															tol = self.tol,
-															maxiter = self.maxiter,
-															n_probes_per_target = self.n_probes_per_target,
-															epsilon = self.epsilon,
-															null_target_id = self.null_target_id,
-															null = self.null_aware,
-															niter = self.niter,
-															verbose = self.verbose,
-															testing = self.testing,
-															use_full_dataset_for_ranking = self.use_full_dataset_for_ranking	
+															ag = self.options.n_stds,
+															tol = self.options.tol,
+															maxiter = self.options.maxiter,
+															n_probes_per_target = self.options.n_probes_per_target,
+															epsilon = self.options.epsilon,
+															null_target_id = self.options.null_target_id,
+															null = self.options.null_aware,
+															niter = self.options.niter,
+															verbose = self.options.verbose,
+															testing = self.options.testing,
+															use_full_dataset_for_ranking = self.options.use_full_dataset_for_ranking	
 														  )
 
 		# store results 
