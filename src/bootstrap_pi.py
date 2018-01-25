@@ -51,7 +51,7 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
     null = True,
     verbose = False,
     testing = False,
-    use_full_dataset_for_ranking = True
+    pre_computed_ranks = None
     ):
     """
     Perform 1 bootstrap of the pi score calculation based on posterior probabilities
@@ -130,20 +130,21 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
     fp, fij, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
 
 
-    if use_full_dataset_for_ranking:
-        # get unweighted estimates for full dataset 
-        # TODO: really shouldn't be running this on everybootstrap
-        fp_0, fij_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
-    else:
-        fp_0 = None
+    # if use_full_dataset_for_ranking:
+    #     # get unweighted estimates for full dataset 
+    #     # TODO: really shouldn't be running this on everybootstrap
+    #     fp_0, fij_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
+    # else:
+    #     fp_0 = None
         
     # get weighted pi scores and target fitness 
     pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, targets,
                                                 n_probes_per_target=n_probes_per_target,
                                                 null_target_id = null_target_id,
                                                 null = null,
-                                                fp_0 = fp_0
+                                                pre_computed_ranks = pre_computed_ranks
                                                 )
+
     # flatten for posterity
     pi_scores = pi_scores.stack().to_frame()
 
@@ -177,6 +178,32 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
 
 
     """
+
+    if use_full_dataset_for_ranking:
+        # if we want to use the full dataset for probe rankings, calculate it now
+        # get initial fit of probe fitnesses based on construct fitnesses
+        fp_0, fij_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
+
+        # build index
+        fp_index = pd.MultiIndex.from_tuples([(probes[i], targets[i]) for i in range(len(probes))],names=['probe_id','target_id']) 
+
+        # make a dataframe out of the probe fitnesses
+        fp_0 = pd.DataFrame(fp_0, index=fp_index, columns=['fitness'])
+        
+        if null:
+            # get null mean
+            null_mean = get_null_array(fp_0, null_target_id = null_target_id).mean(axis=0) 
+
+            # substract the null mean from all the fitnesses
+            fp_0 = fp_0 - null_mean
+
+        # get ranks
+        fpr_0 = rank_probes(fp_0, null=null, null_target_id= null_target_id)
+    else:
+        # if we don't want to use it then simply set the ranking datafame to None
+        fpr_0 = None
+
+
     pi_iter = None
     fitness_iter = None
     counter = 0
@@ -201,7 +228,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
                                                 null = null,
                                                 verbose = verbose,
                                                 testing= testing,
-    						                    use_full_dataset_for_ranking = use_full_dataset_for_ranking
+                                                pre_computed_ranks = fpr_0
                                                 )
         # add column labels corresponding to bootstrap
         pi_scores.columns = [counter]

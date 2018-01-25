@@ -195,7 +195,7 @@ def weight_by_target( eij, fp, w0, probes, targets,
     epsilon = 1e-6,
     null_target_id="NonTargetingControl",
     null = True,
-    fp_0 = None
+    pre_computed_ranks = None
     ):
 
     """ Calculated the weighted average of pi scores and fitness 
@@ -229,29 +229,10 @@ def weight_by_target( eij, fp, w0, probes, targets,
         # substract the null mean from all the fitnesses
         fp = fp - null_mean
 
-    # use the precompute ranks instead of those calculated here
-    if fp_0 is not None:
-        # TODO: clean up this repeat of code, don't recalculate the rankings everytime?
-        fp_0 = pd.DataFrame(fp_0, index=fp_index, columns=['fitness'])
-
-        if null:
-            # get null mean
-            null_mean = get_null_array(fp_0, null_target_id = null_target_id).mean(axis=0) 
-
-            # substract the null mean from all the fitnesses
-            fp_0 = fp_0 - null_mean
-
-        # rank probes , 1=best, 2= second best .... 
-        fpr = rank_probes(fp_0, null=null, null_target_id= null_target_id)
-
-        # reassign fitness column names
-        fpr.columns = ['fitness_0', 'rank']
-
-        # concatenate and drop the full fitness column
-        fpr = pd.concat([fp, fpr], axis=1)
-        fpr = fpr.drop('fitness_0', axis=1)
+    if pre_computed_ranks is not None:
+        # we have precomputed ranks, so add them to fp dataframe
+        fpr = pd.concat([fp, pre_computed_ranks[['rank']]], axis=1)
     else:
-        # rank probes , 1=best, 2= second best .... 
         fpr = rank_probes(fp, null=null, null_target_id= null_target_id)
 
     # compute the weighted target fitness
