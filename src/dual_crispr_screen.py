@@ -155,7 +155,7 @@ class Screen(object):
 													n_probes_per_target=self.options.n_probes_per_target,
 													null_target_id = self.options.null_target_id,
 													null = self.options.null_aware,
-													fp_0 = None
+													pre_computed_ranks = None
 													)
 
 		self.pi_scores = pi_scores
