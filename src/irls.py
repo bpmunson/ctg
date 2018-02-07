@@ -76,18 +76,16 @@ def construct_system_ab(fc, w, err=1e-6):
 
     # replace diagnol with total number of constructs used for the given probe,
     # plus some small error term
-    for i in range(n):
-        A[i,i] = w[:,i].sum()+err
+    A.setdiag(np.asarray(w.sum(axis=1)+err).reshape(-1))
 
     # get new construct fitnesses to fit against
     # initialize a vector with sum of all construct fitnesses for every probe
     # if the assumption of a normally distributed genetic interactions about zero is met 
     # this will be 0 or close to it ... TODO: should it be the mean? 
-    #b = np.array((fc*w).sum(axis=0))
     b = np.array((fc.multiply(w)).sum(axis=1)).reshape((-1,))
     return A, b
 
-def solve_iteration(A, b, fc, expressed):
+def solve_iteration(A, b, fc, expressed, all=True):
     """ 
     Solves for the individual probe fitnesses
 
@@ -108,7 +106,11 @@ def solve_iteration(A, b, fc, expressed):
 
     # TODO: by taking 
     # get indicies on nonzero elements
-    nonzero  = expressed.nonzero()
+    if all:
+        nonzero  = expressed.nonzero()
+    else:
+        nonzero = fc.nonzero()
+
     # get expected double mutant fitness
     fij = sps.csr_matrix((x[nonzero[0]] + x[nonzero[1]], nonzero), shape=fc.shape)
     # get pi scores as observed deviations from expected
@@ -122,7 +124,7 @@ def solve_iteration(A, b, fc, expressed):
 
 
 
-def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False):
+def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
 
     Args:
@@ -168,7 +170,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False):
     A, b = construct_system_ab(fc, w)
     
     # get initial solution
-    fp, fij, eij = solve_iteration(A, b, fc, expressed)
+    fp, fij, eij = solve_iteration(A, b, fc, expressed, all=all)
 
     # write status header
     if verbose:
@@ -194,7 +196,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False):
         A, b = construct_system_ab(fc, w)
         
         # get new solution
-        fp, fij, eij = solve_iteration(A, b, fc, expressed)
+        fp, fij, eij = solve_iteration(A, b, fc, expressed, all=all)
 
         # calculate relative error to the last iteration
         relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
