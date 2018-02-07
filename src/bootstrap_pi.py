@@ -23,6 +23,8 @@ from irls import *
 from weighted_pi import *
 
 from statsmodels.distributions.empirical_distribution import ECDF
+import scipy.sparse as sps
+
 
 def _build_target_array(probes, names):
     """ Description
@@ -72,10 +74,12 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
         tol (float):    The error tolerance threshold which stops the iteration.
         maxit (int):    The maximum number of iterations to perform should 'tol' never be satisfied.
     """
-    fc_0 = np.triu(fc)
-    sdfc_0 = np.triu(sdfc)
-    pp_0 = np.triu(pp)
+    fc_0 = sps.triu(fc)
+    sdfc_0 = sps.triu(sdfc)
+    pp_0 = sps.triu(pp)
 
+    # get nonzero positions 
+    
 
     if testing:
         if seed is None:
@@ -102,12 +106,18 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
             }
             ''')
         r_fc = rpy2.robjects.r['gen_fc1']
+        fc_0 = np.asarray(fc_0.todense())
+        sdfc_0 = np.asarray(sdfc_0.todense())
+        pp_0 = np.asarray(pp_0.todense())
         fc_1 = np.array(r_fc(fc_0, sdfc_0, pp_0, seed))
+        fc_1 = sps.csr_matrix(fc_1)
     else:  
         # get random noise 
         if seed:
             np.random.seed(seed)
-        noise = np.array([np.random.normal(loc=0, scale=sd) if sd>0 else 0 for sd in sdfc_0.flatten()]).reshape(sdfc_0.shape)
+
+        noise_arr = np.array([np.random.normal(loc=0, scale=sd) if sd>0 else 0 for sd in sdfc_0.data])
+        noise = sps.csr_matrix((noise_arr, sdfc_0.nonzero()), shape = sdfc_0.shape)
 
         # add noise to fc
         fc_0 = fc_0 + noise
@@ -117,14 +127,15 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
         if seed:
             np.random.seed(seed)
 
-        include = pp_0 < np.random.rand(pp_0.shape[0], pp_0.shape[1])
+        #include = pp_0 < np.random.rand(pp_0.shape[0], pp_0.shape[1])
+        sampling_arr = np.random.rand(pp_0.count_nonzero())
+        include = pp_0 < sps.csr_matrix((sampling_arr, pp_0.nonzero()), shape=pp_0.shape)
 
         # multiply the construct matrix by boolean inclusion based on posterior proability
-        fc_0 = fc_0 * include
+        fc_0 = fc_0.multiply(include)
 
         # make symmeteric
         fc_1 = fc_0 + fc_0.transpose()
-
 
     # get unweighted estimates using bootstrapped construct fitnesses
     fp, fij, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
@@ -144,9 +155,8 @@ def bootstrap(fc, pp, sdfc, w0, probes, targets,
                                                 null = null,
                                                 pre_computed_ranks = pre_computed_ranks
                                                 )
-
     # flatten for posterity
-    pi_scores = pi_scores.stack().to_frame()
+    #pi_scores = pi_scores.stack().to_frame()
 
     return pi_scores, target_fitness
 
@@ -184,24 +194,21 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         # get initial fit of probe fitnesses based on construct fitnesses
         fp_0, fij_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
 
-        # build index
-        fp_index = pd.MultiIndex.from_tuples([(probes[i], targets[i]) for i in range(len(probes))],names=['probe_id','target_id']) 
-
-        # make a dataframe out of the probe fitnesses
-        fp_0 = pd.DataFrame(fp_0, index=fp_index, columns=['fitness'])
-        
+        # if we want to use the full dataset for probe rankings, calculate it now
+        # get initial fit of probe fitnesses based on construct fitnesses
         if null:
-            # get null mean
-            null_mean = get_null_array(fp_0, null_target_id = null_target_id).mean(axis=0) 
-
-            # substract the null mean from all the fitnesses
+            # get the indicies of the null targets
+            ix = np.where( targets == null_target_id)
+            # get mean of the null probe fitnesses
+            null_mean = fp_0[ix].mean()
+            # subtract off null mean from all fitnesses
             fp_0 = fp_0 - null_mean
 
-        # get ranks
-        fpr_0 = rank_probes(fp_0, null=null, null_target_id= null_target_id)
+        # rank the probes 
+        ranks = rank_probes(fp_0, targets, null=null, null_target_id = null_target_id)
     else:
-        # if we don't want to use it then simply set the ranking datafame to None
-        fpr_0 = None
+        # if we don't want to use it then simply set the ranking to None
+        ranks = None
 
 
     pi_iter = None
@@ -228,7 +235,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
                                                 null = null,
                                                 verbose = verbose,
                                                 testing= testing,
-                                                pre_computed_ranks = fpr_0
+                                                pre_computed_ranks = ranks
                                                 )
         # add column labels corresponding to bootstrap
         pi_scores.columns = [counter]
