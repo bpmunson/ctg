@@ -7,6 +7,7 @@ import pandas as pd
 from scipy.stats import t
 
 from config import config
+import calculate_abundance
 
 from rpy2 import robjects
 from rpy2.robjects.packages import importr
@@ -66,11 +67,28 @@ def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
 def prep_input(abundance_file, counts_file):
-    if isinstance(abundance_file, str):     
+    if isinstance(counts_file, str):
+        tps = _load_timepoint_counts(counts_file)
+
+    print('hi')
+
+    if isinstance(abundance_file, str):
         ab = _load_abundance_thresholds(abundance_file)
 
-    if isinstance(counts_file, str): 
-        tps = _load_timepoint_counts(counts_file)
+    elif abundance_file is None:
+        #TODO: Yes this is a hack...
+        print('here')
+        ab = calculate_abundance.calculate_abundance(tps.iloc[:, 5:])
+
+    elif isinstance(abundance_file, pd.DataFrame) or isinstance(abundance_file, pd.Series):
+        #TODO: Verify that series work also
+
+        ab = abundance_file
+
+    else:
+        raise ValueError('Expected abundance to be of type {str, pd.DataFrame, pd.Series, None}. Received %s instead' % type(abundance_file))
+
+    print(ab)
 
     _tps, names = _convert_timepoint_counts(tps)
     _abundance = _convert_abundance_thresholds(ab)
@@ -126,6 +144,8 @@ def prep_input(abundance_file, counts_file):
 
     counts = np.array([y[i].values for i in y.columns.levels[0]]) # Assume 'reps' to be the first set of levels (see above)
     ab = np.array([ab0[i].values for i in ab0.index.levels[0]])[...,np.newaxis].transpose(0,2,1) #ditto
+
+    print(ab)
 
     return ab, counts, good_names
 
@@ -203,10 +223,10 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
 
     Note: validation is based on the counts_file'''
 
-    try:
-        assert type(abundance) == type(counts)
-    except AssertionError:
-        raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
+    # try:
+    #     assert type(abundance) == type(counts)
+    # except AssertionError:
+    #     raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
 
     #if isinstance(abundance, str):
     abundance, counts, names = prep_input(abundance, counts)

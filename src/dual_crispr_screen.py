@@ -38,7 +38,7 @@ class Options(object):
 
 class Screen(object):
 
-    def __init__(self, abundance_file, timepoint_counts_file, times):
+    def __init__(self, timepoint_counts_file, times, abundance_file=None):
         self.abundance_file = abundance_file
         self.timepoint_counts_file = timepoint_counts_file
         self.times = times
@@ -81,7 +81,7 @@ class Screen(object):
                                                                          samples_axis = self.options.samples_axis,
                                                                          timepoints_axis = self.options.timepoints_axis,
                                                                          keep_names=True)
-        
+
 
         # store results
         self.names = names
@@ -106,7 +106,7 @@ class Screen(object):
             benchmark = '~/crappy/data/test_data/output_data/Notebook8Test_fc_0_benchmark.csv'
             benchmark = pd.read_csv(benchmark, sep=",", header=0, index_col=0)
 
-            # reset indices 
+            # reset indices
             self.fc = self.fc.reindex(index=benchmark.index, columns=benchmark.index)
             self.allbad = self.allbad.reindex(index=benchmark.index, columns=benchmark.index)
             self.sdfc = self.sdfc.reindex(index=benchmark.index, columns=benchmark.index)
@@ -126,7 +126,7 @@ class Screen(object):
         """
         if self.fc is None or self.w0 is None:
             raise AssertionError('No construct fitness or weights available. Must first need to run construct fitting.')
-        
+
         # run irls
         fp, fij, eij = irls.irls(self.fc.values,
                                  self.w0.values,
@@ -134,7 +134,7 @@ class Screen(object):
                                  tol = self.options.tol,
                                  maxiter = self.options.maxiter,
                                  verbose = self.options.verbose)
-        
+
         # store results
         self.fp = fp
         self.fij = fij
@@ -147,7 +147,7 @@ class Screen(object):
             raise AssertionError('No construct fitness or weights available. Must first need to run construct fitting.')
         # compute weighted estimates
         pi_scores, target_fitness = weighted_pi.weight_by_target(
-                                                    self.eij, 
+                                                    self.eij,
                                                     self.fp,
                                                     self.w0.values,
                                                     self.probes,
@@ -181,10 +181,10 @@ class Screen(object):
                                                             niter = self.options.niter,
                                                             verbose = self.options.verbose,
                                                             testing = self.options.testing,
-                                                            use_full_dataset_for_ranking = self.options.use_full_dataset_for_ranking    
+                                                            use_full_dataset_for_ranking = self.options.use_full_dataset_for_ranking
                                                           )
 
-        # store results 
+        # store results
         self.pi_scores_iter = pi_iter
         self.fitness_iter = fitness_iter
 
@@ -207,7 +207,7 @@ class Screen(object):
         """
         #TODO: assert they are they same length
 
-        # make a dataframe 
+        # make a dataframe
         df = pd.concat([probe_a, probe_b], axis=1)
         df.loc[:,'feature'] = feature
         df.columns=['probe_a_id', 'probe_b_id', 'feature']
