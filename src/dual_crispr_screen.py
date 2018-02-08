@@ -59,7 +59,6 @@ class Screen(object):
         self.sdfc = None
         self.pp = None
         self.fp = None
-        self.fij = None
         self.eij = None
         self.pi_scores = None
         self.target_fitness = None
@@ -171,7 +170,7 @@ class Screen(object):
             raise AssertionError('No construct fitness or weights available. Must first need to run construct fitting.')
         
         # run irls
-        fp, fij, eij = irls.irls(self.fc,
+        fp, eij = irls.irls(self.fc,
                                  self.w0,
                                  ag = self.options.n_stds,
                                  tol = self.options.tol,
@@ -180,7 +179,6 @@ class Screen(object):
         
         # store results
         self.fp = fp
-        self.fij = fij
         self.eij = eij
 
     def run_weighting(self):

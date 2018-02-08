@@ -82,10 +82,11 @@ def construct_system_ab(fc, w, err=1e-6):
     # initialize a vector with sum of all construct fitnesses for every probe
     # if the assumption of a normally distributed genetic interactions about zero is met 
     # this will be 0 or close to it ... TODO: should it be the mean? 
+
     b = np.array((fc.multiply(w)).sum(axis=1)).reshape((-1,))
     return A, b
 
-def solve_iteration(A, b, fc, expressed, all=True):
+def solve_iteration_old(A, b, fc, expressed, all=True):
     """ 
     Solves for the individual probe fitnesses
 
@@ -124,6 +125,48 @@ def solve_iteration(A, b, fc, expressed, all=True):
 
 
 
+def solve_iteration(A, b):
+    """ 
+    Solves for the individual probe fitnesses
+
+    TODO: should we be using the fc matrix to get the nonzero instead of expressed? see issue #5
+    """
+    # convert to csr for computation
+    A = A.tocsr()
+
+    # check to see if dimensions aggree for solve
+    r, c = A.shape
+    if r==c:
+        # find single probe fitnesses which satisfy expectation, you additive property
+        #x = np.linalg.solve(A, b)
+        x = sps.linalg.spsolve(A, b)
+    else:
+        # if they do not agree then we must use an iterative least-squares method
+        x = sps.linalg.lsqr(A, b)[0]
+
+
+    return x
+
+
+def calc_eij(fp, fc, expressed, all=True):
+
+    # get indicies on nonzero elements
+    if all:
+        nonzero  = expressed.nonzero()
+    else:
+        nonzero = fc.nonzero()
+
+    # get expected double mutant fitness
+    fij = sps.csr_matrix((fp[nonzero[0]] + fp[nonzero[1]], nonzero), shape=fc.shape)
+    # get pi scores as observed deviations from expected
+    eij = sps.triu(fc) - fij
+
+    # make symmetric
+    eij = eij + eij.transpose()
+
+    return eij
+
+
 def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
 
@@ -158,19 +201,91 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
 
     # subset the constuct fitness matrix to the upper triangle (its symmetric)
     # filter out bad constructs, based on w0 mask
-    #expressed = np.triu(w0).astype(np.bool)
     expressed = sps.triu(w0).astype(np.bool)
-    # initialize new weights matrix, assuming to start that all constructs are good
-    #w = np.ones((n,n))
+   
+    # write status header
+    if verbose:
+        print("\t".join(["Iter","Relative Error"]))
+    
+    # init counter, relative error 
+    counter = 0
+    relative_error = 1
+    while (relative_error > tol) & (counter < maxiter):
 
-    # filter weights
-    w = filter_weights(w0, w0)
+       
+        if counter > 0: 
+            # cache the current single probe fitnesses
+            fp_old = fp.copy()
+
+            # calculate normalized weights bases on pi scores
+            w = biweight(eij, ag=ag, expressed=expressed)
+        else:
+            w = w0
+
+        # filter weights
+        w = filter_weights(w, w0)
+        
+        # get new weights and construct fitnesses
+        A, b = construct_system_ab(fc, w)
+        
+        # get new solution
+        fp = solve_iteration(A, b)
+        eij = calc_eij(fp, fc, expressed, all=all)
+
+        if counter > 0:
+            # calculate relative error to the last iteration
+            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
     
-    # get initial system of equations
-    A, b = construct_system_ab(fc, w)
-    
-    # get initial solution
-    fp, fij, eij = solve_iteration(A, b, fc, expressed, all=all)
+            # optionally print status to stdout 
+            if verbose:
+                print("{}\t{:.6f}".format(counter,relative_error))
+
+        # iterate the counter
+        counter += 1
+
+    # return final results
+    return fp, eij
+
+
+def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
+    """ The iterative least squares fitting function of single gene fitnesses
+
+    Args:
+        fc (matrix):  A NxN matrix of observed fitnesses for each construct.
+                        N is the number of probes.
+                        Columns and rows are individual probes and the the value for [n,m] is the observed fitness of
+                        the dual mutant comprised of probe m and probe n.  This fitness is the slope of a regression 
+                        of log2 normalized abundances vs time.
+                        Matrix is symmetric.
+        w0 (matrix):  A NxN matrix of inital"weights" which is a boolean value to include a given construct pair in
+                        the fit; 1 is True, include the pair, while 0 is False, do not include it.
+                        Used to silence bad constructs.
+                        N is the number of probes.
+                        A probe pair or construct is given a 0 if it was not measured in the dataset or is deemed poor.
+        probes (list):  A list of probe ids
+        ag (int):       Which dimension to aggregate data across
+        tol (float):    The error tolerance threshold which stops the iteration.
+        maxit (int):    The maximum number of iterations to perform should 'tol' never be satisfied.
+
+    Returns:
+        fp (list):      The individual probe fitnesses. A list of floats of length N, the number of probes.
+        pi (matrix)     A symmetric matrix of floats corresponding to the raw pi scores resulting from the fit.  
+                        Size if NxN where N is the number of probes.
+        fij (matrix)    A symmetric matrix of floats corresponding to the expected fitnesses for each contruct 
+                        ie (fp+fp' in log space). Or in this case f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
+
+
+    Raises:
+        null
+    """
+
+    # init holders for cross condition system of equations
+    Es = []
+    # for each condition get the expressed constructs
+    for i in range(len(fc)):
+        # filter out bad constructs, based on w0 mask
+        expressed = sps.triu(w0[i]).astype(np.bool)
+        Es.append(expressed)
 
     # write status header
     if verbose:
@@ -180,34 +295,56 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     counter = 0
     relative_error = 1
     while (relative_error > tol) & (counter < maxiter):
+
+        
+        As, bs = [], []
+        for i in range(len(fc)):
+            
+            if counter > 0:
+                # calculate normalized weights bases on pi scores
+                w = biweight(eijs[i], ag=ag, expressed=Es[i])
+                # cache the current single probe fitnesses
+                fp_old = fp.copy()
+            else:
+                w = w0[i]
+
+            # filter weights
+            w = filter_weights(w, w0[i])
+             
+            # get new weights and construct fitnesses
+            A, b = construct_system_ab(fc[i], w)
+
+            As.append(A)
+            bs.append(b)
+
+        # vstack the condition level systems
+        A = sps.vstack(As)
+        b = np.concatenate(bs)
+    
+        # get initial solution for the entire space
+        fp = solve_iteration(A, b)
+
+        eijs = []
+        for i in range(len(fc)):
+            eij = calc_eij(fp, fc[i], Es[i], all=all)
+            eijs.append(eij)
+
+        if counter > 0:
+            # calculate relative error to the last iteration
+            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
+ 
+            # optionally print status to stdout 
+            if verbose:
+                j = np.sqrt(np.mean(fp**2))
+                print("{}\t{:.4f}\t{:.6f}".format(counter,j,relative_error))
+
         # iterate the counter
         counter += 1
-        
-        # cache the current single probe fitnesses
-        fp_old = fp.copy()
-
-        # calculate normalized weights bases on pi scores
-        w = biweight(eij, ag=ag, expressed=expressed)
-        
-        # filter weights
-        w = filter_weights(w, w0)
-        
-        # get new weights and construct fitnesses
-        A, b = construct_system_ab(fc, w)
-        
-        # get new solution
-        fp, fij, eij = solve_iteration(A, b, fc, expressed, all=all)
-
-        # calculate relative error to the last iteration
-        relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
-    
-        # optionally print status to stdout 
-        if verbose:
-            j = np.sqrt(np.mean(fp**2))
-            print("{}\t{:.4f}\t{:.6f}".format(counter,j,relative_error))
 
     # return final results
-    return fp, fij, eij
+    return fp, eijs
+
+
 
 
 
