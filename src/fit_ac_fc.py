@@ -66,8 +66,11 @@ def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
 def prep_input(abundance_file, counts_file):
-    ab = _load_abundance_thresholds(abundance_file)
-    tps = _load_timepoint_counts(counts_file)
+    if isinstance(abundance_file, str):     
+        ab = _load_abundance_thresholds(abundance_file)
+
+    if isinstance(counts_file, str): 
+        tps = _load_timepoint_counts(counts_file)
 
     _tps, names = _convert_timepoint_counts(tps)
     _abundance = _convert_abundance_thresholds(ab)
@@ -205,8 +208,8 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
     except AssertionError:
         raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
 
-    if isinstance(abundance, str):
-        abundance, counts, names = prep_input(abundance, counts)
+    #if isinstance(abundance, str):
+    abundance, counts, names = prep_input(abundance, counts)
 
     counts = _validate_counts(counts)
 
