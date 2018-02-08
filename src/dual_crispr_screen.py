@@ -38,10 +38,14 @@ class Options(object):
 
 class Screen(object):
 
-    def __init__(self, timepoint_counts_file, times, abundance_file=None):
+    def __init__(self, timepoint_counts_file, times,
+        abundance_file=None, min_counts_threshold=10, verbose=False):
+
         self.abundance_file = abundance_file
         self.timepoint_counts_file = timepoint_counts_file
         self.times = times
+        self.min_counts_threshold=min_counts_threshold
+        self.verbose=verbose
 
         # initialize default options
         # TODO: allow for argparse, config, and setting of options upon initialization
@@ -80,7 +84,9 @@ class Screen(object):
                                                                          replicate_axis = self.options.replicate_axis,
                                                                          samples_axis = self.options.samples_axis,
                                                                          timepoints_axis = self.options.timepoints_axis,
-                                                                         keep_names=True)
+                                                                         keep_names=True,
+                                                                         min_counts_threshold=self.min_counts_threshold,
+                                                                         verbose=self.verbose)
 
 
         # store results

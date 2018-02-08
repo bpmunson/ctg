@@ -66,19 +66,16 @@ def _convert_timepoint_counts(df):
 def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
-def prep_input(abundance_file, counts_file):
+def prep_input(abundance_file, counts_file, min_counts_threshold=10, verbose=False):
     if isinstance(counts_file, str):
         tps = _load_timepoint_counts(counts_file)
-
-    print('hi')
 
     if isinstance(abundance_file, str):
         ab = _load_abundance_thresholds(abundance_file)
 
     elif abundance_file is None:
         #TODO: Yes this is a hack...
-        print('here')
-        ab = calculate_abundance.calculate_abundance(tps.iloc[:, 5:])
+        ab = calculate_abundance.calculate_abundance(tps.iloc[:, 5:], min_counts_threshold=min_counts_threshold)
 
     elif isinstance(abundance_file, pd.DataFrame) or isinstance(abundance_file, pd.Series):
         #TODO: Verify that series work also
@@ -88,10 +85,11 @@ def prep_input(abundance_file, counts_file):
     else:
         raise ValueError('Expected abundance to be of type {str, pd.DataFrame, pd.Series, None}. Received %s instead' % type(abundance_file))
 
-    print(ab)
-
     _tps, names = _convert_timepoint_counts(tps)
     _abundance = _convert_abundance_thresholds(ab)
+
+    if verbose:
+        print(_abundance)
 
     names.loc[names['target_a_id'].str.contains('NonTargeting'), 'target_a_id'] = '0'
     names.loc[names['target_b_id'].str.contains('NonTargeting'), 'target_b_id'] = '0'
@@ -145,8 +143,6 @@ def prep_input(abundance_file, counts_file):
     counts = np.array([y[i].values for i in y.columns.levels[0]]) # Assume 'reps' to be the first set of levels (see above)
     ab = np.array([ab0[i].values for i in ab0.index.levels[0]])[...,np.newaxis].transpose(0,2,1) #ditto
 
-    print(ab)
-
     return ab, counts, good_names
 
 def _validate_counts(counts, replicate_axis=0, samples_axis=1, timepoints_axis=2):
@@ -198,7 +194,9 @@ def _validate_time(counts_shape, times):
 
 def fit_ac_fc(abundance, counts, times, n_good=2,
                 replicate_axis=0, samples_axis=1, timepoints_axis=2,
-                keep_names=False):
+                keep_names=False,
+                min_counts_threshold=10,
+                verbose=False):
     '''fit_ac_fc
 
     This is a line by line recapitulation of Amanda's code (vectorized using
@@ -229,7 +227,10 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
     #     raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
 
     #if isinstance(abundance, str):
-    abundance, counts, names = prep_input(abundance, counts)
+    abundance, counts, names = prep_input(abundance,
+                                            counts,
+                                            min_counts_threshold=min_counts_threshold,
+                                            verbose=verbose)
 
     counts = _validate_counts(counts)
 

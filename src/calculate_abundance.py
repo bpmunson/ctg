@@ -4,7 +4,7 @@ from scipy.interpolate import UnivariateSpline
 from scipy.stats import gaussian_kde
 from scipy.interpolate import CubicSpline
 
-def calculate_abundance(counts_file, **kwargs):
+def calculate_abundance(counts_file, min_counts_threshold=10, **kwargs):
     if isinstance(counts_file, str):
         counts_df = read_counts_file(counts_file, **kwargs)
 
@@ -16,7 +16,7 @@ def calculate_abundance(counts_file, **kwargs):
 
     thresholds = []
     for col in counts_df.columns:
-        thresholds.append(analyzeCountsDist(counts_df[col]))
+        thresholds.append(analyzeCountsDist(counts_df[col], min_counts_threshold=min_counts_threshold))
 
     # return pd.DataFrame(np.vstack([counts_df.columns, thresholds]).T,
     #                    columns=['sampleName', 'log2CountsThresh'],
@@ -27,7 +27,6 @@ def calculate_abundance(counts_file, **kwargs):
                        index=counts_df.columns)
 
     thresholds_df.index.name = 'sampleName'
-    #print('what?')
 
     return thresholds_df
 
@@ -36,7 +35,7 @@ def read_counts_file(fileName, index_col=0, data_col_start=4, sep='\t'):
 
     return counts_df.iloc[:,data_col_start:]
 
-def analyzeCountsDist(counts_series, binwidth=0.05, min_counts_threshold=8, plot=False):
+def analyzeCountsDist(counts_series, binwidth=0.05, min_counts_threshold=10, plot=False):
     log_counts = np.log2(counts_series)
 
 
