@@ -10,6 +10,7 @@
 #     unit tests
 
 # """
+
 import re
 import os
 import argparse
@@ -40,7 +41,6 @@ def _build_target_array(probes, names):
     # merge together and take target ids
     targets = np.array(pd.merge(pd.DataFrame(probes,columns=['probe_id']), c)['target_id'])
     return targets
-
 
 def summarize(pi_iter, fitness_iter):
 
@@ -156,7 +156,8 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     niter=2,
     verbose=False,
     testing=False,
-    use_full_dataset_for_ranking = True
+    use_full_dataset_for_ranking = True,
+    all = True
     ):
 
 
@@ -213,7 +214,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         fc_1 = subsample(fc, pp, sdfc, seed=seed, testing = testing)
 
         # get unweighted estimates using bootstrapped construct fitnesses
-        fp, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
+        fp, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose, all=all)
            
         # get weighted pi scores and target fitness 
         pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, targets,
@@ -238,11 +239,6 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     # return results of bootstrap
     return pi_iter, fitness_iter 
 
-
-
-
-
-
 def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
     ag=2,
     tol=1e-3, 
@@ -254,7 +250,8 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
     niter=2,
     verbose=False,
     testing=False,
-    use_full_dataset_for_ranking = True
+    use_full_dataset_for_ranking = True,
+    all = True
     ):
 
 
@@ -307,7 +304,7 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
 
 
         # get unweighted estimates using bootstrapped construct fitnesses
-        fp, eijs = irls_multi_condition(fc_1s, w0s, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose)
+        fp, eijs = irls_multi_condition(fc_1s, w0s, ag=ag, tol=tol, maxiter=maxiter, verbose=verbose, all=all)
         
         for i in range(len(fcs)):
 

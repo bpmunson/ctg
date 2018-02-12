@@ -22,13 +22,6 @@ import numpy as np
 import scipy.sparse as sps
 
 
-def load_matrix_csv(fp, sep=",", index_col=0, header=0):
-    """ Loads precomputed constuct fitnesses from a csv file
-    """
-
-    fc = pd.read_csv(fp, sep=sep, header=header, index_col=index_col).values
-    return fc
-
 def filter_weights(w, w0):
     """Filter weights for bad constructs and constructs with the only one target
     """
@@ -86,53 +79,14 @@ def construct_system_ab(fc, w, err=1e-6):
     b = np.array((fc.multiply(w)).sum(axis=1)).reshape((-1,))
     return A, b
 
-def solve_iteration_old(A, b, fc, expressed, all=True):
+def solve(A, b):
     """ 
     Solves for the individual probe fitnesses
 
     TODO: should we be using the fc matrix to get the nonzero instead of expressed? see issue #5
     """
     # convert to csr for computation
-    A = A.tocsr()
-
-    # check to see if dimensions aggree for solve
-    r, c = A.shape
-    if r==c:
-        # find single probe fitnesses which satisfy expectation, you additive property
-        #x = np.linalg.solve(A, b)
-        x = sps.linalg.spsolve(A, b)
-    else:
-        # if they do not agree then we must use an iterative least-squares method
-        x = sps.linalg.lsqr(A, b)[0]
-
-    # TODO: by taking 
-    # get indicies on nonzero elements
-    if all:
-        nonzero  = expressed.nonzero()
-    else:
-        nonzero = fc.nonzero()
-
-    # get expected double mutant fitness
-    fij = sps.csr_matrix((x[nonzero[0]] + x[nonzero[1]], nonzero), shape=fc.shape)
-    # get pi scores as observed deviations from expected
-    eij = sps.triu(fc) - fij
-
-    # make symmetric
-    fij = fij + fij.transpose()
-    eij = eij + eij.transpose()
-
-    return x, fij, eij
-
-
-
-def solve_iteration(A, b):
-    """ 
-    Solves for the individual probe fitnesses
-
-    TODO: should we be using the fc matrix to get the nonzero instead of expressed? see issue #5
-    """
-    # convert to csr for computation
-    A = A.tocsr()
+    #A = A.tocsr()
 
     # check to see if dimensions aggree for solve
     r, c = A.shape
@@ -146,7 +100,6 @@ def solve_iteration(A, b):
 
 
     return x
-
 
 def calc_eij(fp, fc, expressed, all=True):
 
@@ -165,7 +118,6 @@ def calc_eij(fp, fc, expressed, all=True):
     eij = eij + eij.transpose()
 
     return eij
-
 
 def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
@@ -229,7 +181,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
         A, b = construct_system_ab(fc, w)
         
         # get new solution
-        fp = solve_iteration(A, b)
+        fp = solve(A, b)
         eij = calc_eij(fp, fc, expressed, all=all)
 
         if counter > 0:
@@ -245,7 +197,6 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
 
     # return final results
     return fp, eij
-
 
 def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
@@ -322,7 +273,7 @@ def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all 
         b = np.concatenate(bs)
     
         # get initial solution for the entire space
-        fp = solve_iteration(A, b)
+        fp = solve(A, b)
 
         eijs = []
         for i in range(len(fc)):

@@ -32,9 +32,12 @@ class Options(object):
         self.null_target_id = "0"
         self.null_aware = True
         self.use_full_dataset_for_ranking = True
-        self.niter = 2
+        self.niter = 100
         self.testing = False
         self.output = None
+        self.all = True
+
+
 
 class Screen(object):
 
@@ -326,7 +329,6 @@ class Screen(object):
         targets = np.array(pd.merge(pd.DataFrame(self.probes,columns=['probe_id']), c)['target_id'])
 
         return targets
-
 
     def _check_symmetric(a, tol=1e-8):
         return np.allclose(a, a.T, atol=tol,equal_nan=True)
