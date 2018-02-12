@@ -229,7 +229,3 @@ def weight_by_target( eij, fp, w0, probes, targets,
 
     return eijm, target_fitness
 
-<<<<<<< HEAD
-=======
-
->>>>>>> e238ec95835da931681e05dfc9dfca7d07949a66
