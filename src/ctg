@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+
+"""
+CTG - Compositionality and Time course aware Genetic interactions anaylsis
+
+"""
+from version import __version__
+import argparse
+import sys
+import logging
+
+import count
+
+
+# Parsers
+def count_parser(subparser):
+    count_subparser = subparser.add_parser('count', help="Count construct reads from a fastq file.")
+
+
+    count_subparser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output.")
+    count_subparser.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
+    count_subparser.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
+    count_subparser.add_argument("--threads", action="store", required=False, default=1, help='Number of threads to use.')
+
+
+    # required arguments
+    # fastqs 
+    count_subparser_req=count_subparser.add_argument_group(title='Required arguments',description='')
+
+    count_subparser_req_me = count_subparser_req.add_mutually_exclusive_group(required=True)
+
+    count_subparser_req_me.add_argument("--fastq1", action="store", default=None, help='File with read 1 mates.  Can be gzipped.')
+    count_subparser_req_me.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
+
+    # library defintion
+    count_subparser_req.add_argument("--library", action="store", required=True, help='Library defintion file in csv format.  ')
+
+
+
+    # optional arguments
+
+    count_subparser_opt=count_subparser.add_argument_group(title='Optional input arguments:',description='')
+
+    count_subparser_opt.add_argument("--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
+
+
+
+    # guide structure
+    count_subparser_opt_read=count_subparser.add_argument_group(title='Optional arguments for read structure',description='')
+    count_subparser_opt_read.add_argument("--guide_5p_r1", action="store", default="TATATATCTTGTGGAAAGGACGAAACACCG", type=str, help="Expected 5' end of read 1.")
+    count_subparser_opt_read.add_argument("--guide_3p_r1", action="store", default="GTTTCAGAGCTATGCTGGAAACTGCATAGCAAGTTGAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGCTTTTTTGTACTGAGGCCACCTTAACACGCGATGATATTGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNGCTATTACGAGCGCTTGGAT", type=str, help="Expected 3' end of read 1.")
+    count_subparser_opt_read.add_argument("--guide_5p_r2", action="store", default="CTTGGAGAAAAGCCTTGTTTG", type=str, help="Expected 5' end of read 2.")
+    count_subparser_opt_read.add_argument("--guide_3p_r2", action="store", default="GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGG", type=str, help="Expected 3' end of read 2.")
+
+    # barcode structure : # TODO make these all required if one is set
+    count_subparser_opt_read.add_argument("--barcode", action="store", help="IUPAC barcode structure to search for in construct backbone. Ex: WSWSWSWSWSWSWSWSWSWS. Should be specified in the guide backbone as N.")
+    count_subparser_opt_read.add_argument("--barcode_location", action="store", default=175, help="The starting base pair of the barcode in the construct.")
+    count_subparser_opt_read.add_argument("--barcode_read", action="store", default='1', help="The read in which the barcode occurs.")
+
+
+    # Threshold for counting
+    count_subparser_opt_count=count_subparser.add_argument_group(title='Optional arguments for counting constructs',description='')
+    count_subparser_opt_count.add_argument("--guide_edit_threshold", action="store", default=2, type=int, help="The maximum number of sinlge nucleotide edits allowed in the guide region for an alignment." )
+    count_subparser_opt_count.add_argument("--barcode_edit_threshold", action="store", default=2, type=int, help="The maximum number of sinlge nucleotide edits allowed a barcode for an alignment." )
+
+    # output files
+    count_subparser_opt_output=count_subparser.add_argument_group(title='Optional arguments for counting outputs',description='')
+    count_subparser_opt_output.add_argument("--counts_file", action="store", default="/dev/stdout", help="The file to write the construct counts to." )
+    count_subparser_opt_output.add_argument("--barcodes_file", action="store", default=None, help="The file to write the barcodes to." )
+    count_subparser_opt_output.add_argument("--bam_file", action="store", default=None, help="The file to write the read alignments to." )
+
+def aggregate_parser(subparser):
+    """ Add options for aggregate function
+    """
+    aggregate_subparser = subparser.add_parser('aggregate', help="Aggregate counts files.")
+
+
+
+    # required arguments
+    # fastqs 
+    aggregate_subparser_req=aggregate_subparser.add_argument_group(title='Required arguments',description='')
+
+    # library defintion
+    aggregate_subparser_req.add_argument("--library", action="store", required=True, help='Library defintion file in csv format.  ')
+    aggregate_subparser_req.add_argument("--counts_files", action="store", required=True, nargs="*", help='Space separated list of counts files created by ctg count.')
+
+
+    # optional Arguments
+    aggregate_subparser.add_argument("--names", action="store", default=None, nargs="+", help="Space separated list of names to use as column headers in output.")
+    aggregate_subparser.add_argument("--output", action="store", default="/dev/stdout", help="Output path")
+    aggregate_subparser.add_argument("-g", "--parse_name_from_files", action="store_true", default=False, help="Output file names from fastq name.  Format required: <sample_name>_T<time_point>_<replicate>_otherinfo.fq")
+
+def score_parser(subparser):
+    score_parser = subparser.add_parser('score', help="Calculate genetic interaction scores from construct counts.")
+    score_parser.add_argument("-v", "--verbose", action="store_true", default=False,help="Verbose output")
+    score_parser.add_argument("--n_good", action="store", default=2, type=int, help="Minimum number of timepoints to use in fitness estimation.")
+    # irls
+    score_parser.add_argument("--n_stds", action="store", default=2, type=float, help="Number of standard deviation to use in Tukey biweight normalization.")
+    score_parser.add_argument("--tol", action="store", default=1e-3, type=float, help="Relative error tolerance")
+    score_parser.add_argument("--max_irls_iter", action="store", default=50, type=int, help="Maximum IRLS iterations to perform")
+    # weighted pi
+    score_parser.add_argument("--n_probes_per_target", action="store", default=2, type=int, help="Maximum number of probes per target to use.") 
+    score_parser.add_argument("--bootstrap_iterations", action="store", type=int, default=2, help="Number of bootstrap iterations to perform")
+    score_parser.add_argument("--null_aware", action="store_true", default=True, help="Treat the null probes different in rankings.")
+    score_parser.add_argument("--null_target_id", action="store", default="0", help="Target/Gene name which corresponds to the null target")
+    score_parser.add_argument("--dont_use_full_dataset_for_ranking", action="store_true", default=False,help="Flag to use all the dataset for probe rankings in bootstraps.")
+    score_parser.add_argument("--testing", action="store_true", default=False, help="Flag for testing purposes only.")
+
+    score_parser.add_argument("-c", "--time_point_counts", action="store", default=None, required=True, help="Path to timepoint counts file.")
+    score_parser.add_argument("-a", "--abundances", action="store", default=None, required=False, help="Path to timepoint counts file.")
+    score_parser.add_argument("-t", "--times", action="store", default=None, required=True, help="Comma separated list of timepoints to use.")
+
+    score_parser.add_argument("--only_use_sampled_fc_for_pi_estimates", action="store_true", default=False, help="Don't estimate pi scores for all the constructs in bootstraps")
+    score_parser.add_argument("-o", "--output", action="store", default=None, help="Output pickle path")
+    score_parser.add_argument("--make_single_gene_screen", action="store_true", default=False,  help="Filter out everything but gene by nontargeting")
+
+def ctg_parseargs():
+    parser = argparse.ArgumentParser(description="CTG analysis.")
+
+    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--verbose", action="store_true", default=False, help="Verbose output.")
+    parser.add_argument("--quiet", action="store_true", default=False, help="Supress all warnings and info.  Superceeds --verbose.")
+    parser.add_argument("--debug", action="store_true", default=False, help="Debug output. ")
+
+    subparser = parser.add_subparsers(help="Commands Available", dest="command")
+
+    # add subparser arguments
+    count_parser(subparser)
+    aggregate_parser(subparser)
+    score_parser(subparser)
+
+
+    #args = parser.parse_args()
+
+    return parser
+
+
+
+# Mains
+def score_main(options):
+    """ Main to run the scoring pipeline
+    """
+    options.times = np.array([int(i) for i in options.times.split(",")])
+
+    screen = Screen(options.time_point_counts, options.times, options.abundances)
+
+    # override default options
+    screen.options.verbose = options.verbose
+    screen.options.n_good = options.n_good
+    screen.options.n_stds = options.n_stds
+    screen.options.tol = options.tol
+    screen.options.maxiter = options.max_irls_iter
+    screen.options.n_probes_per_target = options.n_probes_per_target
+    screen.options.null_target_id = options.null_target_id
+    screen.options.null_aware = options.null_aware
+    screen.options.use_full_dataset_for_ranking = not options.dont_use_full_dataset_for_ranking
+    screen.options.niter = options.bootstrap_iterations
+    screen.options.testing = options.testing
+    screen.options.output = options.output
+    screen.options.all = not options.only_use_sampled_fc_for_pi_estimates
+
+    # run pipeline
+    screen.run_construct_fitting()
+    screen.run_pi_score_calculation()
+    screen.run_weighting()
+    screen.run_bootstrap()
+    if screen.options.output is not None:
+        screen.pickle()
+
+    return 0
+
+def aggregate_main(options):
+    """ Main to aggregate read counts 
+    """
+    #print(options)
+    count.aggregate_counts(options.library, options.counts_files, options.output, options.names )
+
+    return 0
+
+def counting_main(options):
+    """ Main to run the counting pipeline
+    """
+    # build bowtie refernce from library defintion
+    counter = count.Counter(options.library, options.fastq1,
+            input_bam = options.input_bam,
+            fastq2 = options.fastq2,
+            barcode = options.barcode,
+            barcode_location = options.barcode_location,
+            barcode_read = options.barcode_read,
+            guide_edit_threshold = options.guide_edit_threshold,
+            barcode_edit_threshold=options.barcode_edit_threshold,
+            guide_5p_r1 = options.guide_5p_r1,
+            guide_3p_r1 = options.guide_3p_r1,
+            guide_5p_r2 = options.guide_5p_r2,
+            guide_3p_r2 = options.guide_3p_r2,
+            output_counts = options.counts_file,
+            output_bam = options.bam_file,
+            output_barcodes = options.barcodes_file,
+            threads= options.threads)
+
+    # run pipeline
+    counter.build_reference()
+    counter.align_reads()
+    counter.count()
+    counter.cleanup()
+    return 0
+
+def main():
+
+    parser = ctg_parseargs()
+    args = parser.parse_args()
+    # set up logger
+    level = logging.WARNING
+    if args.quiet:
+        level = logging.ERROR
+    if args.verbose:
+        level = logging.INFO
+    if args.debug:
+        level = logging.DEBUG 
+
+
+    logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s', level=level) 
+    logger = logging.getLogger()
+
+    if args.command == None:
+        # no command specified
+        parser.print_help()
+        sys.exit(0)
+
+    if args.command == "count":
+        logger.info('Startng CTG counting pipeline.')
+        counting_main(args)
+        logger.info("Exiting")
+        sys.exit(0)
+
+    if args.command == "score":
+        logger.info('Starting CTG scoring pipeline.')
+        print(args)
+        logger.info("Exiting")
+        sys.exit(0)
+
+    if args.command == "aggregate":
+        logger.info("Starting CTG aggregation.")
+        aggregate_main(args)
+        logger.info("Exiting")
+        sys.exit(0)
+
+    return 0 
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+"""
+#!/bin/bash
+ 
+
+#$ -cwd 
+#$ -l h_vmem=8G
+#$ -o ./eo/
+#$ -e ./eo/
+#$ -N ctg_count
+#$ -pe smp 16
+
+
+export PATH="/cellar/users/bpmunson/Desktop/dual_cripsr/miniconda3/bin:$PATH"
+
+python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg \
+    count \
+    --fastq1 igm-storage1.ucsd.edu/180302_D00611_0607_AHCV7CBCX2_Ideker_Ana_PE_Combo/Data/Fastq/DeCIPheR1_S1_L001_R1_001.fastq.gz \
+    --fastq2 igm-storage1.ucsd.edu/180302_D00611_0607_AHCV7CBCX2_Ideker_Ana_PE_Combo/Data/Fastq/DeCIPheR1_S1_L001_R2_001.fastq.gz \
+    --library library_defintion/library_batch_1_9.csv \
+    --counts_file counts.txt \
+    --bam_file aln.bam \
+    --barcodes_file barcodes.txt \
+    --barcode WSWSWSWSWSWSWSWSWSWSWSWSWSWSWS
+"""
+
+
+
+"""
+# run count on 
+ctg count -g --library library_definition.csv --fastq1 testing_T0_1_r1.fastq.gz --fastq2 testing_T0_1_r2.fastq.gz 
+ctg count -g --library library_definition.csv --fastq1 testing_T0_2_r1.fastq.gz --fastq2 testing_T0_2_r2.fastq.gz
+ctg count -g --library library_definition.csv --fastq1 testing_T1_1_r1.fastq.gz --fastq2 testing_T1_1_r2.fastq.gz
+ctg count -g --library library_definition.csv --fastq1 testing_T1_2_r1.fastq.gz --fastq2 testing_T1_2_r2.fastq.gz
+
+# run count aggregator
+ctg aggregate --parse_name_from_files --library --library library_definition.csv --counts_files *_counts.txt -o testing_time_point_counts.txt
+
+# run scoring pipeline
+ctg score -c testing_time_point_counts.txt -o testing.pkl
+"""
+
+
+"""
+python ../../src/ctg count \
+--library CV4_2spacers_w_probe_names_wo_duplicate.txt \
+--guide_5p_r1 TATATATCTTGTGGAAAGGACGAAACACCG \
+--guide_3p_r1 GTTTCAGAGCTATGCTGGAAACTGCA \
+--guide_5p_r2 CCTTATTTTAACTTGCTATTTCTAGCTCTAAAAC \
+--guide_3p_r2 CAAACAAGGCTTTTCTCCAAGG \
+--fastq1 ~/scratch/crappy_devel/cross_condition/crappy/data/test_data/input_data/A549/fastqs/A549-CV4-1000_d21_1_S3_L001_R1_001.fastq \
+--fastq2 ~/scratch/crappy_devel/cross_condition/crappy/data/test_data/input_data/A549/fastqs/A549-CV4-1000_d21_1_S3_L001_R2_001.fastq \
+--counts_file A549-CV4-1000_d21_1_S3_L001_counts.txt \
+--bam_file A549-CV4-1000_d21_1_S3_L001_alignments.bam 
+
+
+export PATH="/cellar/users/bpmunson/scratch/crappy_devel/cross_condition/crappy/src:$PATH"
+base="testing_100k_1"
+python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg     count     --verbose \
+    --fastq1 "${base}_R1_001.fastq.gz" \
+    --fastq2 "${base}_R2_001.fastq.gz" \
+    --library library_defintion/library_definition_5.csv \
+    --counts_file "${base}_counts.txt" \
+    --bam_file "${base}_alignments.bam"  \
+    --barcodes_file "${base}_barcodes.txt" \
+    --barcode WSWSWSWSWSWSWSWSWSWSWSWSWSWSWS \
+    --threads 16
+"""
