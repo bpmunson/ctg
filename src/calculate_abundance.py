@@ -68,7 +68,11 @@ def analyzeCountsDist(counts_series, binwidth=0.05, min_counts_threshold=10, plo
 
 
 def smallestMin(counts, density, min_counts_threshold):
-    '''Smallest-local-minimum-in-valley method'''
+    '''Smallest-local-minimum-in-valley method
+        If the method fails, return min_counts_threshold as the threhsold
+
+        #TODO: output warning?
+        '''
     log_min_counts = np.log2(min_counts_threshold)
 
     min_indices = findMinIndices(density)
@@ -84,7 +88,7 @@ def smallestMin(counts, density, min_counts_threshold):
     #print(max_counts)
 
     if max_counts is np.ma.core.masked:
-        return None
+        return min_counts_threshold
 
     min_counts = counts[min_indices]
     min_counts_masked = np.ma.array(min_counts,
@@ -96,7 +100,7 @@ def smallestMin(counts, density, min_counts_threshold):
     min_counts = np.min(min_counts_masked)
 
     if min_counts is np.ma.core.masked:
-        return None
+        return min_counts_threshold
 
     return min_counts
 

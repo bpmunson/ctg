@@ -70,6 +70,9 @@ def prep_input(abundance_file, counts_file, min_counts_threshold=10, verbose=Fal
     if isinstance(counts_file, str):
         tps = _load_timepoint_counts(counts_file)
 
+    elif isinstance(counts_file, pd.DataFrame):
+        tps = counts_file
+
     if isinstance(abundance_file, str):
         ab = _load_abundance_thresholds(abundance_file)
 
