@@ -97,6 +97,48 @@ def rank_probes(fp, targets, null=True, null_target_id = "NonTargetingControl"):
 
     return ranks
   
+def mean_target_fitness(fp, ranks, targets, n_probes_per_target=2):
+    ranks_adj = n_probes_per_target + 1 - ranks
+    # zero out negatives
+    ranks_adj[ ranks_adj < 0 ] = 0
+    # set all weights to 1
+    rank_weight = np.ones(len(fp))
+    # multiply the probe fitness by the assigned rank weights
+    fpw = fp * rank_weight
+    # get target weighted fitness as the weighted mean of probe fitnesses
+    fitness = []
+    uniq_targets = np.unique(targets)
+    for t in np.unique(targets):
+        ix = np.where(targets == t)[0]
+        target_fitness = fpw[ix].sum() / rank_weight[ix].sum()
+        fitness.append(target_fitness)
+    # convert to numpy array
+    fitness = np.array(fitness)
+    return fitness, uniq_targets
+
+def mean_construct_weights(ranks, eij, n_probes_per_target=2):
+    """Build the construct weight matrix given an array ranks by probe 
+
+    This computes the outer cross product of the rank array adjusting for the number of probes we want to include
+    for each target
+
+    Args: 
+        ranks (np.array): an array of integers corresponding to within target based fitness ranks
+                         most likely 1.0, 2.0, 3.0, ... with 1 being the best 
+    Returns:
+        construct_weights (ndarray): a NxN array of rank based weights for each probe pair.
+
+    """
+    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
+    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
+    ranks_adj = n_probes_per_target + 1 - ranks
+    # zero out negatives
+    ranks_adj[ ranks_adj < 0 ] = 0
+    # reset all the raks to 1
+    ranks_adj[ ranks_adj>0 ] = 1
+    nonzero = eij.nonzero()
+    construct_weights = sps.csr_matrix((ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]], (nonzero[0], nonzero[1])), shape=eij.shape)
+    return construct_weights
 
 def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
     """ Compute the weighted fitness per target, collapsing the probe based fitnesses according to to their ranks
@@ -122,6 +164,10 @@ def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
     uniq_targets = np.unique(targets)
     for t in np.unique(targets):
         ix = np.where(targets == t)[0]
+        # zero out the rank weights, if the probe based fitness is zero.
+        for j in ix:
+            if fpw[j] == 0:
+                rank_weight[j] == 0
         target_fitness = fpw[ix].sum() / rank_weight[ix].sum()
         fitness.append(target_fitness)
     # convert to numpy array
@@ -157,9 +203,12 @@ def weight_by_target( eij, fp, w0, probes, targets,
     epsilon = 1e-6,
     null_target_id="NonTargetingControl",
     null = True,
-    pre_computed_ranks = None
+    pre_computed_ranks = None,
+    method = "ansatz"
     ):
     """ Description
+    Todo: output null mean, store as attribute
+    
     """
 
     # subtract the null probes from all the fitnesses
@@ -179,11 +228,18 @@ def weight_by_target( eij, fp, w0, probes, targets,
     else:
         ranks = pre_computed_ranks
 
-    # compute the weighted target fitness
-    target_fitness_values, target_fitness_labels = ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2)
+    if method=="mean":
+        # compute the weighted target fitness
+        target_fitness_values, target_fitness_labels = mean_target_fitness(fp, ranks, targets, n_probes_per_target=n_probes_per_target)
 
-    # get construct weights
-    construct_weights = ansatz_construct_weights(ranks, eij, n_probes_per_target=n_probes_per_target)
+        # get construct weights
+        construct_weights = mean_construct_weights(ranks, eij, n_probes_per_target=n_probes_per_target)
+    else:
+        # compute the weighted target fitness
+        target_fitness_values, target_fitness_labels = ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=n_probes_per_target)
+
+        # get construct weights
+        construct_weights = ansatz_construct_weights(ranks, eij, n_probes_per_target=n_probes_per_target)
 
     # make boolean mask for expressed constructs
     expressed = w0>0
