@@ -47,6 +47,13 @@ def get_construct_divider():
 def get_probe_divider():
     return _probe_divider
 
+# get complement of a sequence
+comp = lambda x: x.translate(str.maketrans('ACGT','TGCA'))
+
+# get reverse complement of seqeunce
+rev_comp = lambda x: comp(x)[::-1]
+
+
 class TqdmLoggingHandler(logging.Handler):
     """
     Taken from: https://stackoverflow.com/questions/38543506/change-logging-print-function-to-tqdm-write-so-logging-doesnt-interfere-wit/38739634#38739634
@@ -320,11 +327,6 @@ class Counter():
 
 ### Helpers
 
-# get complement of a sequence
-comp = lambda x: x.translate(str.maketrans('ACGT','TGCA'))
-
-# get reverse complement of seqeunce
-rev_comp = lambda x: comp(x)[::-1]
 
 def read_1_callback(read):
     """ Function to determine if read is the first in a pair
@@ -346,7 +348,7 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
     constructs_id is 
     """
     ld = dict()
-    with open(library, 'r', encoding="utf-8") as handle:
+    with open(library, 'r') as handle:
         c=0
         for line in handle:
             if line.startswith(comment):
@@ -486,6 +488,7 @@ def count_good_constructs(bam_file_path,
     bam = pysam.AlignmentFile(bam_file_path)
 
     # get total read count and paired status
+    log.info("Getting total read counts.")
     total_count, paired = get_fragment_count(bam_file_path)
     log.debug("Total Frags: {}. Paired: {}".format(total_count, paired))
 
@@ -630,20 +633,7 @@ def count_good_constructs(bam_file_path,
         # remove extra handler
         log.handlers = old_handlers
 
-    log.info("Total Fragments: {}".format(total_count))
-    log.info("Fragments Considered: {}".format(reads_considered))
-    log.info("Guides Passing: {}".format(guides_recognized))
-    log.info("Guides Failing: {}".format(guides_unrecoginzed))
-    if library is not None:
-        log.info("Constructs Recognized: {}".format(constructs_recognized))
-        log.info("Constructs Unrecognized: {}".format(constructs_unrecognized))
-    if valid_barcodes > 0:
-        log.info("Barcodes Passing: {}".format(valid_barcodes))
-        log.info("Barcodes Failing: {}".format(invalid_barcodes))
-        log.info("Barcodes Assigned: {}".format(barcode_assigned))
-    
-
-    log.info("Found {0} constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count,valid_constructs/read_count*100 ))
+    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count, valid_constructs/read_count*100 ))
     log.info("Writing outputs.")
 
     # finally write out counts and barcode paths
@@ -660,14 +650,32 @@ def count_good_constructs(bam_file_path,
             handle.write("#Barcodes Failing: {}\n".format(invalid_barcodes))
             handle.write("#Barcodes Assigned: {}\n".format(barcode_assigned))
 
-        # write header  
-        handle.write("construct_id\tcount\tprobe_a\tprobe_b\n")
         # write stats
-        for construct in sorted(construct_counter):
-            count = construct_counter[construct]
-            probe_a_id, probe_b_id = construct.split(get_construct_divider())
-            out_line = "\t".join([str(i) for i in [construct,count,probe_a_id,probe_b_id]])
+        if library is not None:
+            # use library to add write out extra columns
+            # only write constructs we are interested in
+            header = ["construct_id","count","target_a_id","probe_a_id","target_b_id","probe_b_id"]
+            out_line = "\t".join(header)
             handle.write("{}\n".format(out_line))
+            for construct in sorted(library):
+                info = library[construct]
+                count = construct_counter[construct]
+                to_write = [construct, str(count)] + [info[i] for i in header[2:]]
+                out_line = "\t".join(to_write)
+                try:
+                    handle.write("{}\n".format(out_line))
+                except UnicodeEncodeError:
+                    print(out_line)
+                    sys.exit()
+        else:
+            header = ["construct_id","count"]
+            out_line = "\t".join(header)
+            handle.write("{}\n".format(out_line))
+            for construct in sorted(construct_counter):
+                count = construct_counter[construct]
+                to_write = [construct, str(count)]
+                out_line = "\t".join(to_write)
+                handle.write("{}\n".format(out_line))
 
     if output_barcodes_path:
         # build ambigous barcodes path
@@ -677,23 +685,19 @@ def count_good_constructs(bam_file_path,
             amb.write("barcode\tconstruct_id\tcount\n") 
             for barcode, vals in observed_barcodes.items():
                 constructs = [(i[0], i[1]) for i in vals.items()]
-
                 if len(constructs)>1: 
                     log.debug("Abgious Barcode: {}. Maps to {} constructs".format(barcode, len(constructs)))
                     output = "{}\t".format(barcode) 
                     for construct in constructs:
                         output += "{}\t{}\t".format(construct[0],construct[1])
-
                     amb.write("{}\n".format(output))
-
                 else:
                     # split out information
                     construct = constructs[0][0] # name of constructs
                     count = constructs[0][1]
-                    probe_a_id, probe_b_id = construct.split(get_construct_divider())
-                    out_line = "\t".join([str(i) for i in [construct,count,probe_a_id,probe_b_id]])
+                    to_write = [construct, str(count)]
+                    out_line = "\t".join(to_write)
                     handle.write("{}\n".format(out_line))
-
 
     return 0
 
