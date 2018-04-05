@@ -39,6 +39,7 @@ class Options(object):
 
 
 
+
 class Screen(object):
 
     def __init__(self, timepoint_counts_file, times,
@@ -91,6 +92,7 @@ class Screen(object):
                                                                          verbose=self.verbose)
 
 
+        self.fc0 = fc
         # store results
         self.names = names
          # get initial weights
@@ -207,7 +209,8 @@ class Screen(object):
                                                             niter = self.options.niter,
                                                             verbose = self.options.verbose,
                                                             testing = self.options.testing,
-                                                            use_full_dataset_for_ranking = self.options.use_full_dataset_for_ranking    
+                                                            use_full_dataset_for_ranking = self.options.use_full_dataset_for_ranking,
+                                                            all=self.options.all    
                                                           )
 
         # store results 
@@ -218,7 +221,6 @@ class Screen(object):
     def pickle(self):
         output = self.options.output
         pickle.dump(self, open(output, 'wb'))
-
 
     def summarize(self):
         """ Description

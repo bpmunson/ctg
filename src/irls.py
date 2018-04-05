@@ -69,6 +69,7 @@ def construct_system_ab(fc, w, err=1e-6):
 
     # replace diagnol with total number of constructs used for the given probe,
     # plus some small error term
+    x = np.asarray(w.sum(axis=1)+err).reshape(-1)
     A.setdiag(np.asarray(w.sum(axis=1)+err).reshape(-1))
 
     # get new construct fitnesses to fit against
@@ -79,7 +80,7 @@ def construct_system_ab(fc, w, err=1e-6):
     b = np.array((fc.multiply(w)).sum(axis=1)).reshape((-1,))
     return A, b
 
-def solve(A, b):
+def solve(A, b, exact=False):
     """ 
     Solves for the individual probe fitnesses
 
@@ -90,7 +91,7 @@ def solve(A, b):
 
     # check to see if dimensions aggree for solve
     r, c = A.shape
-    if r==c:
+    if exact:
         # find single probe fitnesses which satisfy expectation, you additive property
         #x = np.linalg.solve(A, b)
         x = sps.linalg.spsolve(A, b)
