@@ -3,9 +3,6 @@ import sys
 import pysam
 import argparse
 import regex as re
-#from align import levenshtein_regex, extract_barcode, get_guide_edit_distance
-
-
 
 # Tagging functions
 def levenshtein_distance(observed, expected, allow_iupac=True):
@@ -231,7 +228,6 @@ def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, b
         read.flag+=flag
     return read
 
-
 def main():
     parser = argparse.ArgumentParser(description="Add tags to aligned reads.")
     parser.add_argument("--flag", action="store", default=None, type=int, help="Bitwise flags to add to all reads.")
@@ -269,7 +265,6 @@ def main():
 
     bam.close()
     output.close()
-
 
 if __name__ == "__main__":
     main()

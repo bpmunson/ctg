@@ -9,7 +9,8 @@ import argparse
 import sys
 import logging
 
-import count
+from Counter import Counter
+import dual_crispr_screen
 
 
 # Parsers
@@ -134,9 +135,42 @@ def ctg_parseargs():
 
     return parser
 
-
-
 # Mains
+def counting_main(options):
+    """ Main to run the counting pipeline
+    """
+    # build bowtie refernce from library defintion
+    counter = Counter(options.library, options.fastq1,
+            input_bam = options.input_bam,
+            fastq2 = options.fastq2,
+            barcode = options.barcode,
+            barcode_location = options.barcode_location,
+            barcode_read = options.barcode_read,
+            guide_edit_threshold = options.guide_edit_threshold,
+            barcode_edit_threshold=options.barcode_edit_threshold,
+            guide_5p_r1 = options.guide_5p_r1,
+            guide_3p_r1 = options.guide_3p_r1,
+            guide_5p_r2 = options.guide_5p_r2,
+            guide_3p_r2 = options.guide_3p_r2,
+            output_counts = options.counts_file,
+            output_bam = options.bam_file,
+            output_barcodes = options.barcodes_file,
+            threads= options.threads)
+
+    # run pipeline
+    counter.build_reference()
+    counter.align_reads()
+    counter.count()
+    counter.cleanup()
+    return 0
+
+def aggregate_main(options):
+    """ Main to aggregate read counts 
+    """
+    #print(options)
+    count.aggregate_counts(options.library, options.counts_files, options.output, options.names )
+    return 0
+
 def score_main(options):
     """ Main to run the scoring pipeline
     """
@@ -169,44 +203,9 @@ def score_main(options):
 
     return 0
 
-def aggregate_main(options):
-    """ Main to aggregate read counts 
-    """
-    #print(options)
-    count.aggregate_counts(options.library, options.counts_files, options.output, options.names )
-
-    return 0
-
-def counting_main(options):
-    """ Main to run the counting pipeline
-    """
-    # build bowtie refernce from library defintion
-    counter = count.Counter(options.library, options.fastq1,
-            input_bam = options.input_bam,
-            fastq2 = options.fastq2,
-            barcode = options.barcode,
-            barcode_location = options.barcode_location,
-            barcode_read = options.barcode_read,
-            guide_edit_threshold = options.guide_edit_threshold,
-            barcode_edit_threshold=options.barcode_edit_threshold,
-            guide_5p_r1 = options.guide_5p_r1,
-            guide_3p_r1 = options.guide_3p_r1,
-            guide_5p_r2 = options.guide_5p_r2,
-            guide_3p_r2 = options.guide_3p_r2,
-            output_counts = options.counts_file,
-            output_bam = options.bam_file,
-            output_barcodes = options.barcodes_file,
-            threads= options.threads)
-
-    # run pipeline
-    counter.build_reference()
-    counter.align_reads()
-    counter.count()
-    counter.cleanup()
-    return 0
-
 def main():
-
+    """ Main
+    """
     parser = ctg_parseargs()
     args = parser.parse_args()
     # set up logger
@@ -313,7 +312,7 @@ base="testing_100k_1"
 python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg     count     --verbose \
     --fastq1 "${base}_R1_001.fastq.gz" \
     --fastq2 "${base}_R2_001.fastq.gz" \
-    --library library_defintion/library_definition_5.csv \
+    --library library_defintion/library_definition.csv \
     --counts_file "${base}_counts.txt" \
     --bam_file "${base}_alignments.bam"  \
     --barcodes_file "${base}_barcodes.txt" \
