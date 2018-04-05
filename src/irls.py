@@ -19,6 +19,7 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
+import logging
 import scipy.sparse as sps
 
 
@@ -120,7 +121,7 @@ def calc_eij(fp, fc, expressed, all=True):
 
     return eij
 
-def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
+def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
 
     Args:
@@ -157,15 +158,13 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     expressed = sps.triu(w0).astype(np.bool)
    
     # write status header
-    if verbose:
-        print("\t".join(["Iter","Relative Error"]))
+    # if verbose:
+    #     print("\t".join(["Iter","Relative Error"]))
     
     # init counter, relative error 
     counter = 0
     relative_error = 1
     while (relative_error > tol) & (counter < maxiter):
-
-       
         if counter > 0: 
             # cache the current single probe fitnesses
             fp_old = fp.copy()
@@ -188,10 +187,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
         if counter > 0:
             # calculate relative error to the last iteration
             relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
-    
-            # optionally print status to stdout 
-            if verbose:
-                print("{}\t{:.6f}".format(counter,relative_error))
+            logging.debug("Iteration: {}\t Relative Error: {:.6f}".format(counter,relative_error))
 
         # iterate the counter
         counter += 1
@@ -199,7 +195,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
     # return final results
     return fp, eij
 
-def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all = True):
+def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
 
     Args:
@@ -239,10 +235,6 @@ def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all 
         expressed = sps.triu(w0[i]).astype(np.bool)
         Es.append(expressed)
 
-    # write status header
-    if verbose:
-        print("\t".join(["Iter","RMS","Relative Error"]))
-    
     # init counter, relative error 
     counter = 0
     relative_error = 1
@@ -284,11 +276,7 @@ def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, verbose=False, all 
         if counter > 0:
             # calculate relative error to the last iteration
             relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
- 
-            # optionally print status to stdout 
-            if verbose:
-                j = np.sqrt(np.mean(fp**2))
-                print("{}\t{:.4f}\t{:.6f}".format(counter,j,relative_error))
+            logging.debug("Iteration: {}\t Relative Error: {:.6f}".format(counter,relative_error))
 
         # iterate the counter
         counter += 1

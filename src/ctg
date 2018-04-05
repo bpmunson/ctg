@@ -10,8 +10,7 @@ import sys
 import logging
 
 from Counter import Counter
-import dual_crispr_screen
-
+from Scorer import Scorer
 
 # Parsers
 def count_parser(subparser):
@@ -93,27 +92,41 @@ def aggregate_parser(subparser):
 
 def score_parser(subparser):
     score_parser = subparser.add_parser('score', help="Calculate genetic interaction scores from construct counts.")
-    score_parser.add_argument("-v", "--verbose", action="store_true", default=False,help="Verbose output")
-    score_parser.add_argument("--n_good", action="store", default=2, type=int, help="Minimum number of timepoints to use in fitness estimation.")
+
+    score_parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output.")
+    score_parser.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
+    score_parser.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
+    score_parser.add_argument("--threads", action="store", required=False, default=1, help='Number of threads to use.')
+
+
+
+
+    score_parser.add_argument("--testing", action="store_true", default=False, help="Flag for testing purposes only.")
+    # fit_ac_fc
+    score_parser.add_argument("--min_time_points", action="store", default=2, type=int, help="Minimum number of timepoints to use in fitness estimation.")
     # irls
-    score_parser.add_argument("--n_stds", action="store", default=2, type=float, help="Number of standard deviation to use in Tukey biweight normalization.")
+    score_parser.add_argument("--bi_weight_stds", action="store", default=2, type=float, help="Number of standard deviation to use in Tukey biweight normalization.")
     score_parser.add_argument("--tol", action="store", default=1e-3, type=float, help="Relative error tolerance")
     score_parser.add_argument("--max_irls_iter", action="store", default=50, type=int, help="Maximum IRLS iterations to perform")
     # weighted pi
     score_parser.add_argument("--n_probes_per_target", action="store", default=2, type=int, help="Maximum number of probes per target to use.") 
-    score_parser.add_argument("--bootstrap_iterations", action="store", type=int, default=2, help="Number of bootstrap iterations to perform")
-    score_parser.add_argument("--null_aware", action="store_true", default=True, help="Treat the null probes different in rankings.")
+    score_parser.add_argument("--iterations", action="store", type=int, default=2, help="Number of bootstrap iterations to perform")
     score_parser.add_argument("--null_target_id", action="store", default="0", help="Target/Gene name which corresponds to the null target")
-    score_parser.add_argument("--dont_use_full_dataset_for_ranking", action="store_true", default=False,help="Flag to use all the dataset for probe rankings in bootstraps.")
-    score_parser.add_argument("--testing", action="store_true", default=False, help="Flag for testing purposes only.")
-
+    # input
     score_parser.add_argument("-c", "--time_point_counts", action="store", default=None, required=True, help="Path to timepoint counts file.")
-    score_parser.add_argument("-a", "--abundances", action="store", default=None, required=False, help="Path to timepoint counts file.")
     score_parser.add_argument("-t", "--times", action="store", default=None, required=True, help="Comma separated list of timepoints to use.")
+    # output
+    score_parser.add_argument("-o", "--output", action="store", default=None, help="Output results path")
+    score_parser.add_argument("-p", "--pickle_output", action="store", default=None, help="Outuput a pickled object to this path.")
+    
+    # extra 
+    #score_parser.add_argument("--dont_use_full_dataset_for_ranking", action="store_true", default=False,help="Flag to use all the dataset for probe rankings in bootstraps.")
+    #score_parser.add_argument("-a", "--abundances", action="store", default=None, required=False, help="Path to timepoint counts file.")
+    #score_parser.add_argument("--only_use_sampled_fc_for_pi_estimates", action="store_true", default=False, help="Don't estimate pi scores for all the constructs in bootstraps")
+    #score_parser.add_argument("--make_single_gene_screen", action="store_true", default=False,  help="Filter out everything but gene by nontargeting")
+    #score_parser.add_argument("--null_aware", action="store_true", default=True, help="Treat the null probes different in rankings.")
 
-    score_parser.add_argument("--only_use_sampled_fc_for_pi_estimates", action="store_true", default=False, help="Don't estimate pi scores for all the constructs in bootstraps")
-    score_parser.add_argument("-o", "--output", action="store", default=None, help="Output pickle path")
-    score_parser.add_argument("--make_single_gene_screen", action="store_true", default=False,  help="Filter out everything but gene by nontargeting")
+
 
 def ctg_parseargs():
     parser = argparse.ArgumentParser(description="CTG analysis.")
@@ -171,35 +184,32 @@ def aggregate_main(options):
     count.aggregate_counts(options.library, options.counts_files, options.output, options.names )
     return 0
 
-def score_main(options):
+def scoring_main(options):
     """ Main to run the scoring pipeline
     """
-    options.times = np.array([int(i) for i in options.times.split(",")])
 
-    screen = Screen(options.time_point_counts, options.times, options.abundances)
-
-    # override default options
-    screen.options.verbose = options.verbose
-    screen.options.n_good = options.n_good
-    screen.options.n_stds = options.n_stds
-    screen.options.tol = options.tol
-    screen.options.maxiter = options.max_irls_iter
-    screen.options.n_probes_per_target = options.n_probes_per_target
-    screen.options.null_target_id = options.null_target_id
-    screen.options.null_aware = options.null_aware
-    screen.options.use_full_dataset_for_ranking = not options.dont_use_full_dataset_for_ranking
-    screen.options.niter = options.bootstrap_iterations
-    screen.options.testing = options.testing
-    screen.options.output = options.output
-    screen.options.all = not options.only_use_sampled_fc_for_pi_estimates
+    scorer = Scorer(options.time_point_counts, options.times,
+        verbose = options.verbose,
+        min_time_points = options.min_time_points,
+        bi_weight_stds = options.bi_weight_stds,
+        tol = options.tol,
+        maxiter = options.max_irls_iter,
+        n_probes_per_target = options.n_probes_per_target,
+        null_target_id = options.null_target_id,
+        niter = options.iterations,
+        testing = options.testing,
+        output = options.output,
+        pickle_output = options.pickle_output)
+        #use_full_dataset_for_ranking = not options.dont_use_full_dataset_for_ranking,
 
     # run pipeline
-    screen.run_construct_fitting()
-    screen.run_pi_score_calculation()
-    screen.run_weighting()
-    screen.run_bootstrap()
-    if screen.options.output is not None:
-        screen.pickle()
+    scorer.run_construct_fitting()
+    scorer.run_pi_score_calculation()
+    scorer.run_weighting()
+    scorer.run_sampling()
+    scorer.summarize()
+    if scorer.output is not None:
+        scorer.pickle()
 
     return 0
 
@@ -234,7 +244,7 @@ def main():
 
     if args.command == "score":
         logger.info('Starting CTG scoring pipeline.')
-        print(args)
+        scoring_main(args)
         logger.info("Exiting")
         sys.exit(0)
 
@@ -318,4 +328,7 @@ python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg     count     --ver
     --barcodes_file "${base}_barcodes.txt" \
     --barcode WSWSWSWSWSWSWSWSWSWSWSWSWSWSWS \
     --threads 16
+
+
+
 """

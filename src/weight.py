@@ -21,11 +21,9 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
-
-from irls import *
-
 from scipy.stats import rankdata
 from collections import defaultdict
+from irls import *
 
 def magnitude_construct_weights(fpr, n_probes_per_construct=2):
     """ Use product of magnitude from zero as the weight """
@@ -68,9 +66,7 @@ def magnitude_target_fitness(fpr, n_probes_per_target):
 
     return target_fitness
 
-
-
-def rank_probes(fp, targets, null=True, null_target_id = "NonTargetingControl"):
+def rank_probes(fp, targets, null_target_id = "NonTargetingControl"):
     """ Description
 
     Speed of this could be improved
@@ -174,7 +170,6 @@ def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
     fitness = np.array(fitness)
     return fitness, uniq_targets
 
-
 def ansatz_construct_weights(ranks, eij, n_probes_per_target=2):
     """Build the construct weight matrix given an array ranks by probe 
 
@@ -197,12 +192,10 @@ def ansatz_construct_weights(ranks, eij, n_probes_per_target=2):
     construct_weights = sps.csr_matrix((ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]], (nonzero[0], nonzero[1])), shape=eij.shape)
     return construct_weights
 
-
 def weight_by_target( eij, fp, w0, probes, targets,
     n_probes_per_target=2,
     epsilon = 1e-6,
     null_target_id="NonTargetingControl",
-    null = True,
     pre_computed_ranks = None,
     method = "ansatz"
     ):
@@ -212,7 +205,7 @@ def weight_by_target( eij, fp, w0, probes, targets,
     """
 
     # subtract the null probes from all the fitnesses
-    if null:
+    if null_target_id:
         # get the indicies of the null targets
         ix = np.where( targets == null_target_id)
         if len(ix)==0:
@@ -224,7 +217,7 @@ def weight_by_target( eij, fp, w0, probes, targets,
 
     if pre_computed_ranks is None:
         # rank the probes 
-        ranks = rank_probes(fp, targets, null=null, null_target_id = null_target_id)
+        ranks = rank_probes(fp, targets, null_target_id = null_target_id)
     else:
         ranks = pre_computed_ranks
 
