@@ -4,7 +4,7 @@
 CTG - Compositionality and Time course aware Genetic interactions anaylsis
 
 """
-from version import __version__
+__version__ = 0.1
 import argparse
 import sys
 import logging
