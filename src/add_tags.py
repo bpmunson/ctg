@@ -5,61 +5,16 @@ import argparse
 import regex as re
 
 # Tagging functions
-def levenshtein_distance(observed, expected, allow_iupac=True):
-    """ 
-    Compute the levenshtein distance allowing for IUPAC encoding wildcards
-    Args:
-        observed (str) - the observed barcode from sequencesin ACGT space
-
-    # seq is the observed barcode sequence
-    # expected is the IUPAC enocded structure
-    """
-    if allow_iupac:
-        IUPAC = {"A":"A",
-            "C":"C",
-            "G":"G",
-            "T":"T",
-            "R":"AG",
-            "Y":"CT",
-            "S":"GC",
-            "W":"AT",
-            "K":"GT",
-            "M":"AC",
-            "B":"CGT",
-            "D":"AGT",
-            "H":"ACT",
-            "V":"ACG",
-            "N":"ACGT"} 
-    else:
-        IUPAC = {"A":"A",
-            "C":"C",
-            "G":"G",
-            "T":"T"}
-    # get sizes and init an array to store edit distance counts
-    lx = len(observed)+1
-    ly = len(expected)+1
-    m = np.zeros((lx,ly))
-    # prepoulate edges
-    m[:,0] = range(lx)
-    m[0,:] = range(ly)
-    for x in range(1,lx):
-        for y in range(1,ly):
-            a = m[x-1,y]+1 # insertion
-            b = m[x,y-1]+1 # deletion
-            if (observed[x-1] in IUPAC[expected[y-1]]):
-                c = m[x-1,y-1] # match
-            else:
-                c = m[x-1,y-1]+1 # mismatch
-            m[x,y] = min(a,b,c) # take the best one
-    return (m[lx-1,ly-1]) 
-
 def levenshtein_regex(a, expected):
-    """ Return the fuzzy counts of a regex match to the expected barcode structure.
-        Args:
-            a: string to test
-            expected : [AC][GT][AC][GT] ....
-        Return:
-            edit distance
+    """
+    Calculate the edit distance of a sequence from the expected sequence
+    structure.
+    Args:
+        a (str): the sequence to test
+        expected (str): the expected fromat of a in IUPAC format.
+    Returns:
+        edit_distance (int): the minimum number of 1 base pair changes required
+        to make the sequence into the expected sequence structure.
     """
     IUPAC = {"A":"A",
             "C":"C",
@@ -80,20 +35,28 @@ def levenshtein_regex(a, expected):
     expected = "".join(["[{}]".format(IUPAC[b]) for b in expected])
     r = re.compile("({}){{e}}".format(expected))
     h = r.match(a)
-    return sum(h.fuzzy_counts)
+    edit_distance = sum(h.fuzzy_counts)
+    return edit_distance
 
 def get_guide_edit_distance(read, start = 30, length = 20, extract=False):
-    """ Verify alignment against guide was good enough
+    """ Calculate the edit distance in a similar vein to the sam format
+        'NM tag', for a subregion on the reference corresponding to the guide.
+
         Args:
-            pysam AlignedSegment
-            guide_start - where the guide starts in the reference sequence
-            guide_end - where the guide ens in the reference sequence
-            threshold - the maximum mutations (insertions, deletions, substitions) allowed
+            read (pysam AlignedSegment): the read segment to inspect
+            start (int): where the first base of the subregion in the reference
+            length (int): where the length of the subregion
+            extract (bool): return the query subsequence as well as the 
+                edit distance to the reference
         Return:
-            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
-            
+            guide_edit_distance (int): number of one-nucleotide edits
+                needed to transform the subsequence into reference
+            subseq (str): the query subsequence (Optional)
+        Raises:
+            IndexError: If the subsequence extends beyond the reference.
     """
-    # check if the read is rev_comp, if so the start and ends are calculated from the end of the rea
+    # check if the read is rev_comp, if so the start and
+    # ends are calculated from the end of the read
     ap = read.get_aligned_pairs(with_seq=True)
     matches = 0 
     mismatches = [0,0,0] # mismatches, insertions, deletions
@@ -106,10 +69,8 @@ def get_guide_edit_distance(read, start = 30, length = 20, extract=False):
         try:
             p = ap[i]
         except IndexError:
-            print(i)
-            print(ap)
-            print(read.qname)
-            sys.exit()
+            logging.error("Index out of range: {} {}".format(p, i))
+            raise IndexError()
         i+=1     
         if p[1] is None:
             if in_region:
@@ -153,17 +114,17 @@ def get_guide_edit_distance(read, start = 30, length = 20, extract=False):
         return guide_edit_distance, subseq 
     return guide_edit_distance
 
-def extract_barcode(read, s=175, e=175+30):
-    """ Extract random-mer barcode from read
-        Todo: we shouldn't have to loop through read twice
-        
+def extract_barcode(read, start=175, length=30):
+    """ Extract the UMI barcode (randomer) from a specified position in 
+        the reference
+
         Args:
-            pysam AlignedSegment
-            barcode_start - where the guide starts in the reference sequence
-            barcode_end - where the guide ens in the reference sequence
-            threshold - the maximum hamming distance of the barcode to an expected one
+            read (pysam AlignedSegment): the read segment to inspect
+            start (int): where the first base of the subregion in the reference
+            length (int): where the length of the subregion
         Return:
-            barcode sequence            
+            barcode (str): the query sequence in the read, corresponding to 
+                the subregion of the reference sequence specifed.
     """
     #read_length = read.infer_query_length()
     ap = read.get_aligned_pairs(with_seq=True)
@@ -174,9 +135,9 @@ def extract_barcode(read, s=175, e=175+30):
     for i in range(len(ap)):
         if ap[i][1] is None:
             continue
-        if ap[i][1] == s:
+        if ap[i][1] == start:
             ap_start = i
-        elif ap[i][1] == e:
+        elif ap[i][1] == start+length:
             ap_end = i
 
     if ap_start is None:
@@ -203,14 +164,36 @@ def extract_barcode(read, s=175, e=175+30):
         return None
     return barcode 
 
-def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, barcode_start=None, flag=None):
-    """ Add tags to reads
-        Count barcode edit distance
+def add_tags(read,
+            guide_start=None, guide_length=None,
+            expected_barcode=None, barcode_start=None,
+            flag=None):
+    """ Add sam/bam tags to a pysam read alignment. 
+        Optionally add information about the edit distance in the guide region,
+        the randomer barcode, and mate information stored in the bitwise flag.
+
+        Args:
+            read (pysam AlignedSegment): the read segment to inspect
+            guide_start (int): where the first base of the subregion in the
+                reference where the guide occurs
+            guide_length (int): where the length of guide in the reference
+            expected_barcode (str): the expected format of the barcode in
+                IUPAC format.
+            barcode_start (int): the start position of the barcode in 
+                the reference
+            flag (int): bitwise flag to add to the the read
+        Return:
+            read (pysam AlignedSegment): the read segment with modififications
     """
     if guide_start:
-        ged, seq = get_guide_edit_distance(read, start = guide_start, length=guide_length, extract=True)
+        ged, seq = get_guide_edit_distance( read,
+                                            start = guide_start,
+                                            length=guide_length,
+                                            extract=True)
     if expected_barcode:
-        barcode = extract_barcode(read, s = barcode_start, e = barcode_start + len(expected_barcode))
+        barcode = extract_barcode(read,
+                                start = barcode_start,
+                                length = len(expected_barcode))
         if barcode is not None:
             bed = levenshtein_regex(barcode, expected_barcode)
 
@@ -229,40 +212,65 @@ def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, b
     return read
 
 def main():
+    """ Main - Command line functionality to add reads to streamed sam file.
+
+    Input is a piped sam file.
+    Output is a piped sam file with tags added to the reads.
+    """
     parser = argparse.ArgumentParser(description="Add tags to aligned reads.")
-    parser.add_argument("--flag", action="store", default=None, type=int, help="Bitwise flags to add to all reads.")
-    parser.add_argument("--expected_barcode", action="store", type=str, default=None,required=False, help="Position of the guide in the read.")
-    parser.add_argument("--barcode_start",action="store",type=int,default=None,required=False,help="Position of barcode in read")
-    parser.add_argument("--guide_start", action="store", type=int,help="Position of the guide in the read.")
-    parser.add_argument("--guide_length", action="store",type=int, help="Position of the guide in the read.")
-    #parser.add_argument("input_bam",action="store",help="input bam")
-    #parser.add_argument("output_bam",action="store",help="output bam")
+    parser.add_argument("--flag",
+        action="store", default=None, type=int,
+        help="Bitwise flags to add to all reads.")
+    parser.add_argument("--expected_barcode",
+        action="store", type=str, default=None, required=False,
+        help="Position of the guide in the read.")
+    parser.add_argument("--barcode_start",
+        action="store",type=int,default=None,required=False,
+        help="Position of barcode in read")
+    parser.add_argument("--guide_start",
+        action="store", type=int,
+        help="Position of the guide in the read.")
+    parser.add_argument("--guide_length",
+        action="store",type=int,
+        help="Position of the guide in the read.")
     args = parser.parse_args()
 
     bam = pysam.AlignmentFile("-", "r")
 
     # get header
     header= bam.header.to_dict()
+    # add new process group tag to header
     new_pg = {'CL':' '.join(sys.argv), 'ID':'CTG', 'PN':'add_tags', 'VN':0.1}
     header['PG'].append(new_pg)
+    # open output bam handle
     output = pysam.AlignmentFile("-", "w", header=header)
 
+    # loop through reads 
     while True:
         try:
             read = next(bam)
         except StopIteration:
             break
 
-        if not read.is_unmapped:
-            read = add_tags(read, args.guide_start, args.guide_length, args.expected_barcode, args.barcode_start, args.flag)
+        # if a read is unmapped just add the tags 
+        if read.is_unmapped:
+            read = add_tags(read,
+                            flag=args.flag)
         else:
-            read = add_tags(read, flag=args.flag)
-
+            read = add_tags(read,
+                            args.guide_start,
+                            args.guide_length
+                            args.expected_barcode,
+                            args.barcode_start,
+                            args.flag)
         try:
             output.write(read)
         except OSError:
+            # this is to handle keyboard interupts
+            # or pipeling to premature stop (eg: | head)
             break
 
+    # close the handles
     bam.close()
     output.close()
 

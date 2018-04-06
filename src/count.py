@@ -1,26 +1,19 @@
-"""
-General Pipeline
+""" General Pipeline
 
 From library definition file and expected read structure, make bowtie2 reference
-Align reads independently to guide reference
-Merge Reads together and add mate information
-Count good constructs while extracting barcodes  
+Align reads independently to guide reference Merge Reads together and add mate
+information Count good constructs while extracting barcodes
 
 
-guide_5p_r1: the 5' side of the first guide 
-guide_3p_r1: the 3' side of the first guide 
-guide_5p_r2: the 5' side of the second guide in the same orientation as the first)
-guide_3p_r2: the 3' side of the second guide in the same orientation as the first)
+guide_5p_r1: the 5' side of the first guide  guide_3p_r1: the 3' side of the
+first guide  guide_5p_r2: the 5' side of the second guide in the same
+orientation as the first) guide_3p_r2: the 3' side of the second guide in the
+same orientation as the first)
 
-ie if the construct is 
-R1|--------------->|
+ie if the construct is  R1|--------------->|
 5'-AAAA<Guide1>CCCCNNNNGGGG<Guide2>TTTT-3'
-                      |<---------------|R2
-guide_5p_r1=AAAA
-guide_3p_r1=CCCC
-guide_5p_r2=GGGG
-guide_3p_r2=TTTT
-"""
+|<---------------|R2 guide_5p_r1=AAAA guide_3p_r1=CCCC guide_5p_r2=GGGG
+guide_3p_r2=TTTT """
 
 import os
 import pysam
@@ -49,7 +42,7 @@ def read_1_callback(read):
         Args:
             pysam AlignedSegment
         Return:
-            True/False
+            True if bitwise flag 1 is set for read, False otherwise
     """
     if read.is_read1:
         return True
@@ -57,11 +50,23 @@ def read_1_callback(read):
         return False
 
 def read_library_file(library, sep="\t", header=0, comment="#"):
-    """ Open read in a library file
-    format is:
-    construct_id    target_a_id probe_a_id  probe_a_sequence    target_b_id probe_b_id  probe_b_sequence
+    """ Import a library file 
+    Expected format is:
+    construct_id    target_a_id probe_a_id  probe_a_sequence  ..
+    target_b_id    probe_b_id  probe_b_sequence
 
     constructs_id is 
+    Args:
+        libary (str): path to library defintion
+        sep (str): field delimiter
+        header (str): header line after initial comments
+        comment (str): character at begining of line specifying a comment
+    Returns: 
+        ld (dict): dictionary wtih construct_ids as keys and dictionary values
+            dictionary values are of the form: column_id: row_value
+    Raises:
+        RunTimeError if duplicate constructs were seen in library 
+
     """
     ld = dict()
     with open(library, 'r') as handle:
@@ -78,13 +83,24 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
             construct_id = line[0]
             vals = {header_line[i]:line[i] for i in range(1,len(line))}
             if construct_id in ld:
-                raise RuntimeError("Duplicate construct ids found in library defintion: {}".format(construct_id))
+                raise RuntimeError("{} {}".format(
+                    "Duplicate construct ids found in library defintion:"
+                    construct_id))
             ld[construct_id] = vals
     return ld
 
 def mate_pair_bam_reader(bam_file_path, paired=True):
     """
-    Read bam file mate pairs
+    Read mate pairs from a bam file.
+
+    Args:
+        bam_file_path (str): path to bam file to read
+        paired (bool): True if the bam file contains paried reads, false
+            otherwise
+    Yeilds:
+        read pair (pysam AlignedSegement, pysamAlignedSegment): a read pair,
+            first is read 1, second is read 2 
+
     """
     if bam_file_path.endswith('bam'):
         method = "rb"
@@ -120,9 +136,14 @@ def mate_pair_bam_reader(bam_file_path, paired=True):
 
 def get_fragment_count(bam):
     """ 
-    Get the number of fragments an aligned bam, checking for paired status first
+    Get the number of fragments an aligned bam, checking for paired status
+    first.
 
-    Returns the readcount and boolean indicating paired status
+    Args: 
+        bam (pysam.AlignmentFile): sam/bam file to get fragment count of
+    Returns:
+        readcount (int): the number of fragments in the bam file
+        True/False bool:  True if the fragments are paired, False otherwise
     """
     # check paired
     read_count = int(pysam.view("-c", "-f65", bam).rstrip())
@@ -133,11 +154,29 @@ def get_fragment_count(bam):
     else:
         return read_count, True
 
-def build_guide_reference(library, g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2, reference_fasta=None, tmp_dir = "./"):
+def build_guide_reference(library,
+    g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2,
+    reference_fasta=None, tmp_dir = "./"):
     """
     Build expected guide sequences for aligner reference
 
-    Args: output reference
+    Args: 
+        library (dict): dictionary representation of the dual CRISPR guides 
+            see: count.read_library_file
+        g_5p_r1 (str): the 5' sequence of the construct upstream of the first
+            guide.
+        g_3p_r1 (str): the 3' sequence of the construct downstream of the first
+            guide.
+        g_5p_r2 (str): the 5' sequence of the construct upstream of the second
+            guide.
+        g_3p_r2 (str): the 3' sequence of the construct downstream of the second
+            guide.
+        reference_fasta (str): the name of the reference file
+        tmp_dir (str): directory path to write the reference file to
+    Returns:
+        None
+    Raises:
+        RunTimeError if multiple sequences are observed for the same probe id
     """
 
     # read in library if a string is passed
@@ -148,21 +187,29 @@ def build_guide_reference(library, g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2, reference
     probe_a = defaultdict(list)
     probe_b = defaultdict(list)
     for construct in library:
-        probe_a[library[construct]['probe_a_id']].append(library[construct]['probe_a_sequence'])
-        probe_b[library[construct]['probe_b_id']].append(library[construct]['probe_b_sequence'])
+        probe_a[library[construct]['probe_a_id']].append(
+            library[construct]['probe_a_sequence'])
+        probe_b[library[construct]['probe_b_id']].append(
+            library[construct]['probe_b_sequence'])
 
     # write out 
     # check to see if an output reference file was passed
     if reference_fasta is None:
         # if none is passed then simply write to 
-        reference_fasta = os.path.join(tmp_dir, os.path.splitext(os.path.basename(library_path))[0])
+        reference_fasta = os.path.join(tmp_dir,
+                                        os.path.splitext(
+                                            os.path.basename(library_path)
+                                        )[0])
     with open(reference_fasta, 'w') as handle:
 
         for probe_id in sorted(probe_a):
             new_id = "{}_A".format(probe_id)
             seq = list(set(probe_a[probe_id]))
             if len(seq)>1:
-                raise RuntimeError("Probe sequences are not identical for {}".format(probe))
+                raise RuntimeError("{} {}".format(
+                    "Probe sequences are not identical for",
+                    probe
+                    ))
             else:
                 guide_sequence = seq[0]
             ref = g_5p_r1+guide_sequence+g_3p_r1
@@ -173,7 +220,10 @@ def build_guide_reference(library, g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2, reference
             new_id = "{}_B".format(probe_id)
             seq = list(set(probe_b[probe_id]))
             if len(seq)>1:
-                raise RuntimeError("Probe sequences are not identical for {}".format(probe))
+                raise RuntimeError("{} {}".format(
+                    "Probe sequences are not identical for",
+                    probe
+                    ))
             else:
                 guide_sequence = seq[0]
             ref = g_5p_r2+guide_sequence+g_3p_r2
@@ -187,7 +237,23 @@ def count_good_constructs(bam_file_path,
     barcode_edit_threshold = 0,
     output_counts_path = "/dev/stdout",
     output_barcodes_path = None):
-    """ Count construct pairs and assign barcodes
+    """ Count construct pairs and valid barcodes.
+
+    Args:
+        bam_file_path (str): the bam file path containing the reads to count
+        library (dict): dictionary representation of the dual CRISPR guides 
+            see: count.read_library_file
+        guide_edit_threshold (int): the maximum number of single base pair edits
+            to allow in the guide region of aligned reads.
+        barcode_edit_threshold (int): the maximum number of single base pair
+            edits to allow in the barcode region of aligned reads.
+        output_counts_path (str): the path to write the construct counts to.
+            Default is standard out.
+        output_barcodes_path (str): the path to write the observed barcode -
+            construct mapping to.  Optional, default is to not write out
+            barcodes.
+    Return:
+        None
     """
 
     # set up logger
@@ -224,7 +290,10 @@ def count_good_constructs(bam_file_path,
 
         read_count += 1
         # do some qc checks 
-        if (read.is_unmapped) | (read.is_duplicate) | (paired and mate.is_unmapped) | (paired and not read.is_read1):
+        if  (read.is_unmapped) | \
+            (read.is_duplicate) | \
+            (paired and mate.is_unmapped) | \
+            (paired and not read.is_read1):
             continue
 
         # count the read
@@ -265,7 +334,8 @@ def count_good_constructs(bam_file_path,
             # no barcode read, assume bad 
             log.debug("No barcode tag found in read: {}".format(read.qname))
             barcode = None 
-            barcode_ditance = barcode_edit_threshold+1 # one more than threshold so it never passes
+            # one more than threshold so it never passes
+            barcode_ditance = barcode_edit_threshold+1 
             pass
 
         # Tabulate construct counts
@@ -329,7 +399,10 @@ def count_good_constructs(bam_file_path,
                 invalid_barcodes += 1
 
 
-    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count, valid_constructs/read_count*100 ))
+    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(
+        valid_constructs,
+        read_count,
+        valid_constructs/read_count*100))
     log.info("Writing outputs.")
 
     # finally write out counts and barcode paths
@@ -339,24 +412,34 @@ def count_good_constructs(bam_file_path,
         handle.write("#Guides Passing: {}\n".format(guides_recognized))
         handle.write("#Guides Failing: {}\n".format(guides_unrecoginzed))
         if library is not None:
-            handle.write("#Constructs Recognized: {}\n".format(constructs_recognized))
-            handle.write("#Constructs Unrecognized: {}\n".format(constructs_unrecognized))
+            handle.write("#Constructs Recognized: {}\n".format(
+                constructs_recognized))
+            handle.write("#Constructs Unrecognized: {}\n".format(
+                constructs_unrecognized))
         if valid_barcodes > 0:
-            handle.write("#Barcodes Passing: {}\n".format(valid_barcodes))
-            handle.write("#Barcodes Failing: {}\n".format(invalid_barcodes))
-            handle.write("#Barcodes Assigned: {}\n".format(barcode_assigned))
+            handle.write("#Barcodes Passing: {}\n".format(
+                valid_barcodes))
+            handle.write("#Barcodes Failing: {}\n".format(
+                invalid_barcodes))
+            handle.write("#Barcodes Assigned: {}\n".format(
+                barcode_assigned))
 
         # write stats
         if library is not None:
             # use library to add write out extra columns
             # only write constructs we are interested in
-            header = ["construct_id","target_a_id","probe_a_id","target_b_id","probe_b_id","count"]
+            header = ["construct_id",
+                        "target_a_id","probe_a_id",
+                        "target_b_id","probe_b_id",
+                        "count"]
             out_line = "\t".join(header)
             handle.write("{}\n".format(out_line))
             for construct in sorted(library):
                 info = library[construct]
                 count = construct_counter[construct]
-                to_write = [construct] + [info[i] for i in header[1:-1]] + [str(count)]
+                to_write = [construct] 
+                to_write += [info[i] for i in header[1:-1]] 
+                to_write += [str(count)]
                 out_line = "\t".join(to_write)
                 try:
                     handle.write("{}\n".format(out_line))
@@ -375,14 +458,17 @@ def count_good_constructs(bam_file_path,
 
     if output_barcodes_path:
         # build ambigous barcodes path
-        ambiguous = "{}.ambiguous.txt".format(os.path.splitext(output_barcodes_path)[0])
-        with open(output_barcodes_path, 'w') as handle, open(ambiguous, 'w') as amb:
+        ambiguous = "{}.ambiguous.txt".format(
+            os.path.splitext(output_barcodes_path)[0])
+        with open(output_barcodes_path, 'w') as handle,\
+             open(ambiguous, 'w') as amb:
             handle.write("barcode\tconstruct_id\tcount\n")
             amb.write("barcode\tconstruct_id\tcount\n") 
             for barcode, vals in observed_barcodes.items():
                 constructs = [(i[0], i[1]) for i in vals.items()]
                 if len(constructs)>1: 
-                    log.debug("Abgious Barcode: {}. Maps to {} constructs".format(barcode, len(constructs)))
+                    log.debug("Abgious Barcode: {}. Maps to {} constructs".\
+                        format(barcode, len(constructs)))
                     output = "{}\t".format(barcode) 
                     for construct in constructs:
                         output += "{}\t{}\t".format(construct[0],construct[1])
@@ -397,7 +483,8 @@ def count_good_constructs(bam_file_path,
 
     return 0
 
-def aggregate_counts(libary, counts_files, output_file = "/dev/null", names = None):
+def aggregate_counts(libary, counts_files,
+    output_file = "/dev/null", names = None):
     """ Combine counts files by constrcut
     """
     counts_files = ['counts_1.txt', 'counts_2.txt']

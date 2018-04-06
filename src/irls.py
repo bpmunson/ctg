@@ -25,19 +25,36 @@ import scipy.sparse as sps
 
 def filter_weights(w, w0):
     """Filter weights for bad constructs and constructs with the only one target
+    
+    Set diagonal to zero and zero out specific entries
+    Args:
+        w (scipy sparse matrix): the matrix of weights to filter
+        w0 (scipy sparse matrix): boolean matrix to zero out values from w
+    Returns:
+        w (scipy sparse matrix): the resulting filtered matrix
+
     """
     
-    # replace the diagonal (ie same gene on both probes ) with zero ... or do not include
-    #np.fill_diagonal(w, 0)
+    # replace the diagonal (ie same gene on both probes ) with zero ...
+    # or do not include
     w.setdiag(0)
 
-    # zero out previous determined bad constructs 
+    # zero out previous determined bad constructs
     w = w.multiply(w0)
-
     return w
 
-def biweight(eij, ag=2, expressed=None):
+def biweight(eij, ag=2., expressed=None):
     """ Normalize weights according to a modified Tukey's Biweight
+    see: http://mathworld.wolfram.com/TukeysBiweight.html
+    Args:
+        eij (scipy sparse matrix): a matrix of residuals from a fit
+            of single probe fitnesses 
+        ag (float): the number of standard deviation to use in normalization. 
+            similar to (ag*sdtev)=c in tukey's biweight
+        expressed (scipy sparse matrix): boolean matrix to filter residuals to
+            in standard deviation calculation
+    Returns:
+        w (scipy sparse matrix): weights matrix
     """
 
     nonzero = eij.nonzero()
@@ -48,7 +65,8 @@ def biweight(eij, ag=2, expressed=None):
         # create a mask of all true
         expressed = ones.astype(np.bool)
         
-    # calculate standard deviation of pi scores (residuals) for expressed constructs
+    # calculate standard deviation of pi scores (residuals) for expressed
+    # constructs
     sd = eij[expressed].std()
     
     # calculate new weights, aparently using a modified biweight model 
@@ -62,7 +80,15 @@ def biweight(eij, ag=2, expressed=None):
     return w
 
 def construct_system_ab(fc, w, err=1e-6):
-    """ Construct the system of equations to solve
+    """ Construct the system of equations to solve A*x=b.  Formulates A and b.
+
+    Args:
+        fc (scipy sparse matrix): matrix of consturct fitnesses
+        w (scipy sprase matrix): matrix of weights
+        err (float): small error term to apply to force diagonal not to be zero
+    Returns:
+        A (scipy sparse matrix)
+        b (numpy array)
     """
     n = fc.shape[0]
     # initialize the imputed weights matrix
@@ -73,46 +99,94 @@ def construct_system_ab(fc, w, err=1e-6):
     x = np.asarray(w.sum(axis=1)+err).reshape(-1)
     A.setdiag(np.asarray(w.sum(axis=1)+err).reshape(-1))
 
-    # get new construct fitnesses to fit against
-    # initialize a vector with sum of all construct fitnesses for every probe
-    # if the assumption of a normally distributed genetic interactions about zero is met 
-    # this will be 0 or close to it ... TODO: should it be the mean? 
+    # get new construct fitnesses to fit against initialize a vector with sum of
+    # all construct fitnesses for every probe if the assumption of a normally
+    # distributed genetic interactions about zero is met  this will be 0 or
+    # close to it ... TODO: should it be the mean?
 
     b = np.array((fc.multiply(w)).sum(axis=1)).reshape((-1,))
     return A, b
 
 def solve(A, b, exact=False):
     """ 
-    Solves for the individual probe fitnesses
+    Solve a system of equations corresponding to A*x=b.
 
-    TODO: should we be using the fc matrix to get the nonzero instead of expressed? see issue #5
+    An underlying assumption of the dual knockout screens is that
+    interations are rare. As such, the fitness of most double constructs will
+    equal the multiplicative product of the single probe fitnesses. In log space
+    this is an addative, fc = fa+fb. If a probe if measured against n other
+    probes targeting different genetic elements then the sum of these constructs
+    is expected to be 
+    \sum_{i}^n fc_i = fc_1 + fc_2 + ... + fc_n = n*fa+fb_1+fb_2+fb3 
+
+    As such the A matrix is constructed as integer weights and b is the sum of
+    construct fitnesses for a given probe.
+    ex:
+    A = [ 3, 1, 1
+          1, 3, 1,
+          1, 1, 3]
+    b = [ 
+        ]
+
+    Args:
+        A (scipy sparse matrix): probe by probe matrix of weights 
+        b (numpy vector): sum of constructs fitness by probe
+        exact (bool): True if solving the system directly (square desgins),
+            False otherwise, for example in multiple conditions
+    Returns:
+        x (numpy vector): vector of inputed probe fitness
+
+
+    TODO: should we be using the fc matrix to get the nonzero instead of
+    expressed? see issue #5
     """
     # convert to csr for computation
     #A = A.tocsr()
 
-    # check to see if dimensions aggree for solve
+    # check to see if dimensions agree for solve
     r, c = A.shape
     if exact:
-        # find single probe fitnesses which satisfy expectation, you additive property
+        if r!=c:
+            raise RunTimeError("{}".format(
+                "Trying to solve a non-square matrix. Useexact=False."))
+        # find single probe fitnesses which satisfy expectation, you additive
+        # property
         #x = np.linalg.solve(A, b)
         x = sps.linalg.spsolve(A, b)
     else:
-        # if they do not agree then we must use an iterative least-squares method
+        # if they do not agree then we must use an iterative least-squares
+        # method
         x = sps.linalg.lsqr(A, b)[0]
-
 
     return x
 
-def calc_eij(fp, fc, expressed, all=True):
+def calc_eij(fp, fc, expressed=None):
+    """ Calculate the residuals of a inputed probe based fitnesses.
 
+    fij (matrix): A symmetric matrix of floats corresponding to the expected
+    fitnesses for each contruct ie (fp+fp' in log space). Or in this case 
+    f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
+
+    Args: 
+        fp (numpy array): vector of inputed probe based fitnesses
+        fc (scipy sparse matrix): probe by probe matrix of measured construct
+            fitnesses
+        expressed (scipy sparse matrix): boolean matrix mask indicating weather
+            to include a construct in the calculation
+    Returns:
+        eij (scipy sparse matrix): the residuals of the expected constructs
+        fitnesses bases on addative probe fitness from observed in the construct
+        fitness matrix (fc)
+    """
     # get indicies on nonzero elements
-    if all:
+    if expressed is not None:
         nonzero  = expressed.nonzero()
     else:
         nonzero = fc.nonzero()
 
     # get expected double mutant fitness
-    fij = sps.csr_matrix((fp[nonzero[0]] + fp[nonzero[1]], nonzero), shape=fc.shape)
+    fij = sps.csr_matrix((fp[nonzero[0]] + fp[nonzero[1]], nonzero),
+         shape=fc.shape)
     # get pi scores as observed deviations from expected
     eij = sps.triu(fc) - fij
 
@@ -122,35 +196,30 @@ def calc_eij(fp, fc, expressed, all=True):
     return eij
 
 def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
-    """ The iterative least squares fitting function of single gene fitnesses
+    """ The iterative least squares fitting function of single gene fitnesses.
 
     Args:
         fc (matrix):  A NxN matrix of observed fitnesses for each construct.
-                        N is the number of probes.
-                        Columns and rows are individual probes and the the value for [n,m] is the observed fitness of
-                        the dual mutant comprised of probe m and probe n.  This fitness is the slope of a regression 
-                        of log2 normalized abundances vs time.
-                        Matrix is symmetric.
-        w0 (matrix):  A NxN matrix of inital"weights" which is a boolean value to include a given construct pair in
-                        the fit; 1 is True, include the pair, while 0 is False, do not include it.
-                        Used to silence bad constructs.
-                        N is the number of probes.
-                        A probe pair or construct is given a 0 if it was not measured in the dataset or is deemed poor.
-        probes (list):  A list of probe ids
-        ag (int):       Which dimension to aggregate data across
-        tol (float):    The error tolerance threshold which stops the iteration.
-        maxit (int):    The maximum number of iterations to perform should 'tol' never be satisfied.
-
+            N is the number of probes. Columns and rows are individual probes
+            and the the value for [n,m] is the observed fitness of the dual
+            mutant comprised of probe m and probe n.  This fitness is the slope
+            of a regression  of log2 normalized abundances vs time. Matrix is
+            symmetric.
+        w0 (matrix): A NxN matrix of inital"weights" which is a boolean value 
+            to include a given construct pair in the fit; 1 is True, include the
+            pair, while 0 is False, do not include it. Used to silence bad
+            constructs. N is the number of probes. A probe pair or construct is
+            given a 0 if it was not measured in the] dataset or is deemed poor.
+        ag (int): Which dimension to aggregate data across
+        tol (float): The error tolerance threshold which stops the iteration.
+        maxit (int): The maximum number of iterations to perform should 'tol'
+            never be satisfied.
     Returns:
-        fp (list):      The individual probe fitnesses. A list of floats of length N, the number of probes.
-        pi (matrix)     A symmetric matrix of floats corresponding to the raw pi scores resulting from the fit.  
-                        Size if NxN where N is the number of probes.
-        fij (matrix)    A symmetric matrix of floats corresponding to the expected fitnesses for each contruct 
-                        ie (fp+fp' in log space). Or in this case f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
-
-
-    Raises:
-        null
+        fp (list): The individual probe fitnesses. A list of floats of length N,
+            the number of probes.
+        eij (matrix): A symmetric matrix of floats corresponding to the raw pi
+            scores resulting from the fit. Size if NxN where N is the number of
+            probes.
     """
 
     # subset the constuct fitness matrix to the upper triangle (its symmetric)
@@ -182,7 +251,7 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
         
         # get new solution
         fp = solve(A, b)
-        eij = calc_eij(fp, fc, expressed, all=all)
+        eij = calc_eij(fp, fc, expressed)
 
         if counter > 0:
             # calculate relative error to the last iteration
@@ -197,34 +266,30 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
 
 def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
-
+    for multiple conditions simultaneously.
+    
     Args:
         fc (matrix):  A NxN matrix of observed fitnesses for each construct.
-                        N is the number of probes.
-                        Columns and rows are individual probes and the the value for [n,m] is the observed fitness of
-                        the dual mutant comprised of probe m and probe n.  This fitness is the slope of a regression 
-                        of log2 normalized abundances vs time.
-                        Matrix is symmetric.
-        w0 (matrix):  A NxN matrix of inital"weights" which is a boolean value to include a given construct pair in
-                        the fit; 1 is True, include the pair, while 0 is False, do not include it.
-                        Used to silence bad constructs.
-                        N is the number of probes.
-                        A probe pair or construct is given a 0 if it was not measured in the dataset or is deemed poor.
-        probes (list):  A list of probe ids
-        ag (int):       Which dimension to aggregate data across
-        tol (float):    The error tolerance threshold which stops the iteration.
-        maxit (int):    The maximum number of iterations to perform should 'tol' never be satisfied.
-
+            N is the number of probes. Columns and rows are individual probes
+            and the the value for [n,m] is the observed fitness of the dual
+            mutant comprised of probe m and probe n.  This fitness is the slope
+            of a regression  of log2 normalized abundances vs time. Matrix is
+            symmetric.
+        w0 (matrix): A NxN matrix of inital"weights" which is a boolean value 
+            to include a given construct pair in the fit; 1 is True, include the
+            pair, while 0 is False, do not include it. Used to silence bad
+            constructs. N is the number of probes. A probe pair or construct is
+            given a 0 if it was not measured in the] dataset or is deemed poor.
+        ag (int): Which dimension to aggregate data across
+        tol (float): The error tolerance threshold which stops the iteration.
+        maxit (int): The maximum number of iterations to perform should 'tol'
+            never be satisfied.
     Returns:
-        fp (list):      The individual probe fitnesses. A list of floats of length N, the number of probes.
-        pi (matrix)     A symmetric matrix of floats corresponding to the raw pi scores resulting from the fit.  
-                        Size if NxN where N is the number of probes.
-        fij (matrix)    A symmetric matrix of floats corresponding to the expected fitnesses for each contruct 
-                        ie (fp+fp' in log space). Or in this case f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
-
-
-    Raises:
-        null
+        fp (list): The individual probe fitnesses. A list of floats of length N,
+            the number of probes.
+        eijs (list): A list of symmetric matrices of floats corresponding to
+            the raw pi scores resulting from the fit for each condition. Size of
+            each matrix is NxN where N is the number ofprobes.
     """
 
     # init holders for cross condition system of equations
@@ -270,7 +335,7 @@ def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
 
         eijs = []
         for i in range(len(fc)):
-            eij = calc_eij(fp, fc[i], Es[i], all=all)
+            eij = calc_eij(fp, fc[i], Es[i])
             eijs.append(eij)
 
         if counter > 0:
