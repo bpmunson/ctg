@@ -6,8 +6,8 @@ from numpy.matlib import repmat
 import pandas as pd
 from scipy.stats import t
 
-from config import config
-import calculate_abundance
+from ctg.config import config
+import ctg.calculate_abundance as calculate_abundance
 
 from rpy2 import robjects
 from rpy2.robjects.packages import importr

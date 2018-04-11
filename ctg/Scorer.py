@@ -7,10 +7,10 @@ import pandas as pd
 import numpy as np
 import scipy.sparse as sps
 
-import fit_ac_fc
-import irls
-import weight
-import sample
+import ctg.fit_ac_fc as fit_ac_fc
+import ctg.irls as irls
+import ctg.weight as weight
+import ctg.sample as sample
 
 class Scorer(object):
 

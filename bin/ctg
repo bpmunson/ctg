@@ -7,16 +7,18 @@ CTG - Compositionality and Time course aware Genetic interactions anaylsis
 __version__ = 0.1
 import argparse
 import sys
+import os
 import logging
 
-from Counter import Counter
-from Scorer import Scorer
+# hot fix to imports working, this should be fixed with setup.py
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),"../"))
+
+from ctg.Counter import Counter
+from ctg.Scorer import Scorer
 
 # Parsers
 def count_parser(subparser):
     count_subparser = subparser.add_parser('count', help="Count construct reads from a fastq file.")
-
-
     count_subparser.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output.")
     count_subparser.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
     count_subparser.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
@@ -26,24 +28,16 @@ def count_parser(subparser):
     # required arguments
     # fastqs 
     count_subparser_req=count_subparser.add_argument_group(title='Required arguments',description='')
-
     count_subparser_req_me = count_subparser_req.add_mutually_exclusive_group(required=True)
-
     count_subparser_req_me.add_argument("--fastq1", action="store", default=None, help='File with read 1 mates.  Can be gzipped.')
     count_subparser_req_me.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
 
     # library defintion
     count_subparser_req.add_argument("--library", action="store", required=True, help='Library defintion file in csv format.  ')
 
-
-
     # optional arguments
-
     count_subparser_opt=count_subparser.add_argument_group(title='Optional input arguments:',description='')
-
     count_subparser_opt.add_argument("--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
-
-
 
     # guide structure
     count_subparser_opt_read=count_subparser.add_argument_group(title='Optional arguments for read structure',description='')
@@ -53,9 +47,9 @@ def count_parser(subparser):
     count_subparser_opt_read.add_argument("--guide_3p_r2", action="store", default="GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGG", type=str, help="Expected 3' end of read 2.")
 
     # barcode structure : # TODO make these all required if one is set
-    count_subparser_opt_read.add_argument("--barcode", action="store", help="IUPAC barcode structure to search for in construct backbone. Ex: WSWSWSWSWSWSWSWSWSWS. Should be specified in the guide backbone as N.")
+    count_subparser_opt_read.add_argument("--barcode", action="store", default=None, help="IUPAC barcode structure to search for in construct backbone. Ex: WSWSWSWSWSWSWSWSWSWS. Should be specified in the guide backbone as N.")
     count_subparser_opt_read.add_argument("--barcode_location", action="store", default=175, help="The starting base pair of the barcode in the construct.")
-    count_subparser_opt_read.add_argument("--barcode_read", action="store", default='1', help="The read in which the barcode occurs.")
+    count_subparser_opt_read.add_argument("--barcode_read", action="store", default=1, help="The read in which the barcode occurs.")
 
 
     # Threshold for counting
@@ -125,8 +119,6 @@ def score_parser(subparser):
     #score_parser.add_argument("--only_use_sampled_fc_for_pi_estimates", action="store_true", default=False, help="Don't estimate pi scores for all the constructs in bootstraps")
     #score_parser.add_argument("--make_single_gene_screen", action="store_true", default=False,  help="Filter out everything but gene by nontargeting")
     #score_parser.add_argument("--null_aware", action="store_true", default=True, help="Treat the null probes different in rankings.")
-
-
 
 def ctg_parseargs():
     parser = argparse.ArgumentParser(description="CTG analysis.")
@@ -317,9 +309,10 @@ python ../../src/ctg count \
 --bam_file A549-CV4-1000_d21_1_S3_L001_alignments.bam 
 
 
-export PATH="/cellar/users/bpmunson/scratch/crappy_devel/cross_condition/crappy/src:$PATH"
+export PATH="/cellar/users/bpmunson/crappy/bin:$PATH"
 base="testing_100k_1"
-python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg     count     --verbose \
+ctg count \
+    --verbose \
     --fastq1 "${base}_R1_001.fastq.gz" \
     --fastq2 "${base}_R2_001.fastq.gz" \
     --library library_defintion/library_definition.csv \
@@ -330,5 +323,5 @@ python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg     count     --ver
     --threads 16
 
 
-
+bowtie2 
 """

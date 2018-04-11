@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import rankdata
 from collections import defaultdict
-from irls import *
+
 
 def magnitude_construct_weights(fpr, n_probes_per_construct=2):
     """ Use product of magnitude from zero as the weight """
@@ -138,10 +138,10 @@ def mean_construct_weights(ranks, eij, n_probes_per_target=2):
 
 def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
     """ Compute the weighted fitness per target, collapsing the probe based fitnesses according to to their ranks
+    
     Args: 
         fpr (dataframe): an array of imputed probe base fitness values. with at least two columns 'fitness' and 'rank'
-                     and a multiindex containing probe and target ids
-
+            and a multiindex containing probe and target ids
     Returns:
         target_fitness (dataframe): a pandas dataframe of target fitnesses weighted by rank.
 
