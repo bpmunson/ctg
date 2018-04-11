@@ -44,7 +44,7 @@ def bowtie2_build(reference, bt2_index_base, *args, **kwargs):
             call.append("--{} {}".format(k, v))
     if bt2_index_base:
         call.append(bt2_index_base)
-    call.append(reference_in)
+    call.append(reference)
     #print("call: ", call)
     logging.info("Building Bowtie2 Index.")
     subprocess.check_call(call)
@@ -113,7 +113,7 @@ def bowtie2_align(fastq, bt2_index_base, *args,
 
     # add 
     if guide_start or expected_barcode:
-        call.append("| add_tags.py")
+        call.append("| add_tags")
         if guide_start:
             if guide_length is None:
                 raise RuntimeError()
@@ -142,6 +142,8 @@ def bowtie2_align(fastq, bt2_index_base, *args,
     subprocess.check_output(call, shell=True)
 
     return 0
+
+
 
 def merge_fixmate(r1_bam, r2_bam, out_bam, tmp="./sort"):
     """ 

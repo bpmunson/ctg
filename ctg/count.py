@@ -1,23 +1,12 @@
-""" General Pipeline
 
-From library definition file and expected read structure, make bowtie2 reference
-Align reads independently to guide reference Merge Reads together and add mate
-information Count good constructs while extracting barcodes
-
-
-guide_5p_r1: the 5' side of the first guide  guide_3p_r1: the 3' side of the
-first guide  guide_5p_r2: the 5' side of the second guide in the same
-orientation as the first) guide_3p_r2: the 3' side of the second guide in the
-same orientation as the first)
-
-ie if the construct is  R1|--------------->|
-5'-AAAA<Guide1>CCCCNNNNGGGG<Guide2>TTTT-3'
-|<---------------|R2 guide_5p_r1=AAAA guide_3p_r1=CCCC guide_5p_r2=GGGG
-guide_3p_r2=TTTT """
+"""
+Docstring
+"""
 
 import os
 import pysam
 import logging
+import regex as re
 from collections import defaultdict
 
 import pandas as pd
@@ -69,10 +58,18 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
 
     """
     ld = dict()
+    options = dict()
     with open(library, 'r') as handle:
         c=0
         for line in handle:
             if line.startswith(comment):
+                # expect tags
+                try:
+                    tag, value = line.lstrip("#").split(":")
+                    tag = tag.lstrip()
+                except ValueError:
+                    continue
+                options[tag] = value
                 continue
             if c==header:
                 header_line = line.rstrip().split(sep)
@@ -84,7 +81,7 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
             vals = {header_line[i]:line[i] for i in range(1,len(line))}
             if construct_id in ld:
                 raise RuntimeError("{} {}".format(
-                    "Duplicate construct ids found in library defintion:"
+                    "Duplicate construct ids found in library defintion:",
                     construct_id))
             ld[construct_id] = vals
     return ld
@@ -154,6 +151,233 @@ def get_fragment_count(bam):
     else:
         return read_count, True
 
+# Tagging functions
+def levenshtein_distance(observed, expected, allow_iupac=True):
+    """ 
+    Compute the levenshtein distance allowing for IUPAC encoding wildcards
+    Args:
+        observed (str) - the observed barcode from sequencesin ACGT space
+
+    # seq is the observed barcode sequence
+    # expected is the IUPAC enocded structure
+    """
+    if allow_iupac:
+        IUPAC = {"A":"A",
+            "C":"C",
+            "G":"G",
+            "T":"T",
+            "R":"AG",
+            "Y":"CT",
+            "S":"GC",
+            "W":"AT",
+            "K":"GT",
+            "M":"AC",
+            "B":"CGT",
+            "D":"AGT",
+            "H":"ACT",
+            "V":"ACG",
+            "N":"ACGT"} 
+    else:
+        IUPAC = {"A":"A",
+            "C":"C",
+            "G":"G",
+            "T":"T"}
+    # get sizes and init an array to store edit distance counts
+    lx = len(observed)+1
+    ly = len(expected)+1
+    m = np.zeros((lx,ly))
+    # prepoulate edges
+    m[:,0] = range(lx)
+    m[0,:] = range(ly)
+    for x in range(1,lx):
+        for y in range(1,ly):
+            a = m[x-1,y]+1 # insertion
+            b = m[x,y-1]+1 # deletion
+            if (observed[x-1] in IUPAC[expected[y-1]]):
+                c = m[x-1,y-1] # match
+            else:
+                c = m[x-1,y-1]+1 # mismatch
+            m[x,y] = min(a,b,c) # take the best one
+    return (m[lx-1,ly-1]) 
+
+def levenshtein_regex(a, expected):
+    """ Return the fuzzy counts of a regex match to the expected barcode structure.
+
+        Args:
+            a (str): string to test
+            expected (str) : [AC][GT][AC][GT] ....
+        Return:
+            edit distance
+    """
+    IUPAC = {"A":"A",
+            "C":"C",
+            "G":"G",
+            "T":"T",
+            "R":"AG",
+            "Y":"CT",
+            "S":"GC",
+            "W":"AT",
+            "K":"GT",
+            "M":"AC",
+            "B":"CGT",
+            "D":"AGT",
+            "H":"ACT",
+            "V":"ACG",
+            "N":"ACGT"} 
+    # consturct regex string
+    expected = "".join(["[{}]".format(IUPAC[b]) for b in expected])
+    r = re.compile("({}){{e}}".format(expected))
+    h = r.match(a)
+    return sum(h.fuzzy_counts)
+
+def get_guide_edit_distance(read, start = 30, length = 20, extract=False):
+    """ Verify alignment against guide was good enough
+        
+        Args:
+            read (pysam AlignedSegment) read to be analyzed
+            guide_start (int): where the guide starts in the reference sequence
+            length (int): where the guide ens in the reference sequence
+            extract (bool): True to return observed guide sequence
+        Return:
+            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
+            
+    """
+    # check if the read is rev_comp, if so the start and ends are calculated from the end of the rea
+    ap = read.get_aligned_pairs(with_seq=True)
+    matches = 0 
+    mismatches = [0,0,0] # mismatches, insertions, deletions
+    in_region=False
+    i = 0
+    if extract:
+        subseq = ''
+    while True:
+        # get pair
+        try:
+            p = ap[i]
+        except IndexError:
+            print(i)
+            print(ap)
+            print(read.qname)
+            sys.exit()
+        i+=1     
+        if p[1] is None:
+            if in_region:
+                mismatches[1]+=1 # add insertion
+                if extract:
+                    subseq+=read.query_sequence[p[0]]
+            continue
+        # only process the expected guide locations
+        if p[1]<start:
+            continue
+        if p[1]==start:
+            in_region=True
+        if p[1]==start+length:
+            break
+        if in_region:
+            # catalog mutations
+            if p[0] is None:
+                mismatches[2]+=1 # add deletion to mismatches
+            # elif p[1] is None:
+            #     mismatches[1]+=1 # add insertion
+            elif p[2].islower():
+                mismatches[0]+=1 # add mismatches
+                if extract:
+                    subseq+=read.query_sequence[p[0]]
+
+            else:
+                matches += 1 # matches
+                if extract:
+                    subseq+=read.query_sequence[p[0]]
+        if i==len(ap):
+            # never saw the end of the guide
+            # so add the rest as deletions
+            #logging.error(read.qname)
+            
+            mismatches[2]+= length - sum(mismatches)  - matches
+            break
+    
+    guide_edit_distance = sum(mismatches)
+    # return pass
+    if extract:
+        return guide_edit_distance, subseq 
+    return guide_edit_distance
+
+def extract_barcode(read, s=175, e=175+30):
+    """ Extract random-mer barcode from read
+        Todo: we shouldn't have to loop through read twice
+        
+        Args:
+            pysam AlignedSegment
+            barcode_start - where the guide starts in the reference sequence
+            barcode_end - where the guide ens in the reference sequence
+            threshold - the maximum hamming distance of the barcode to an expected one
+        Return:
+            barcode sequence            
+    """
+    #read_length = read.infer_query_length()
+    ap = read.get_aligned_pairs(with_seq=True)
+    barcode = ''
+    # init
+    ap_start, ap_end = None, None
+    # find start in pairs
+    for i in range(len(ap)):
+        if ap[i][1] is None:
+            continue
+        if ap[i][1] == s:
+            ap_start = i
+        elif ap[i][1] == e:
+            ap_end = i
+
+    if ap_start is None:
+        # never saw start in reference
+        return None
+    if ap_end is None:
+        # never saw the end in the refernce
+        return None
+
+    i = ap_start
+    while True:
+        if i==ap_end:
+            break
+        if ap[i][0]==None: # deletion
+            ap_end+=1
+            i+=1
+            continue
+        if ap[i][0]==None: # insertion
+            ap_end-=1
+        barcode += read.query_sequence[ap[i][0]]
+        i+=1
+        
+    if barcode == "":
+        return None
+    return barcode 
+
+def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, barcode_start=None, flag=None):
+    """ Add tags to reads
+        Count barcode edit distance
+    """
+    if guide_start:
+        ged, seq = get_guide_edit_distance(read, start = guide_start, length=guide_length, extract=True)
+    if expected_barcode:
+        barcode = extract_barcode(read, s = barcode_start, e = barcode_start + len(expected_barcode))
+        if barcode is not None:
+            bed = levenshtein_regex(barcode, expected_barcode)
+
+    # add tags to read
+    # set guide edit distance
+    if guide_start:
+        read.set_tag('YG', seq, value_type="Z")
+        read.set_tag('YH', ged, value_type="i")
+    if expected_barcode and barcode:
+        read.set_tag("YB", barcode, value_type = "Z")
+        read.set_tag("YC", bed, value_type = "i")
+
+    # add bitwise flags
+    if flag:
+        read.flag+=flag
+    return read
+
+# main functionality
 def build_guide_reference(library,
     g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2,
     reference_fasta=None, tmp_dir = "./"):
@@ -181,7 +405,7 @@ def build_guide_reference(library,
 
     # read in library if a string is passed
     if isinstance(library,str):
-        library = read_library_file(library_path)
+        library, options = read_library_file(library_path)
 
     # build probe sequence dicts
     probe_a = defaultdict(list)
@@ -232,6 +456,159 @@ def build_guide_reference(library,
     return 0
 
 def count_good_constructs(bam_file_path, 
+    library = None,
+    guide_edit_threshold = 2,
+    output_counts_path = "/dev/stdout"):
+    """ Count construct pairs and assign barcodes
+    """
+
+    # set up logger
+    log = logging.getLogger()
+
+    if bam_file_path.endswith('bam'):
+        method = "rb"
+    else:
+        method = "r"
+
+    # open bam handle
+    bam = pysam.AlignmentFile(bam_file_path)
+
+    # get total read count and paired status
+    log.info("Getting total read counts.")
+    total_count, paired = get_fragment_count(bam_file_path)
+    log.debug("Total Frags: {}. Paired: {}".format(total_count, paired))
+
+    # initialize counters
+    construct_counter = defaultdict(int)
+    observed_barcodes = defaultdict(lambda: defaultdict(int))
+    read_count = 0
+    reads_considered = 0
+    constructs_recognized = 0
+    constructs_unrecognized = 0 
+    guides_recognized = 0
+    guides_unrecoginzed = 0
+    valid_constructs = 0
+
+    for read, mate in mate_pair_bam_reader(bam_file_path):
+
+        read_count += 1
+        # do some qc checks 
+        if (read.is_unmapped) | (read.is_duplicate) | (paired and mate.is_unmapped) | (paired and not read.is_read1):
+            continue
+
+        # count the read
+        reads_considered += 1 
+
+        # get guide edit distance
+        try:
+            guide_ed_read1 = read.get_tag("YH")
+        except KeyError:
+            # no edit distance tag, assume bad
+            continue
+
+
+        rname = read.reference_name.rstrip("_A")
+        #rname = read.reference_name
+
+        # get construct
+        if paired:
+            mname = mate.reference_name.rstrip("_B")
+            #mname = mate.reference_name
+            construct = get_construct_divider().join([rname, mname])
+            # get mate edit distance
+            try:
+                guide_ed_read2 = mate.get_tag("YH")
+            except KeyError:
+                # no edit distance tag, assume bad
+                continue
+        else:
+            construct = rname
+            guide_ed_read2 = None
+
+
+        # Tabulate construct counts
+        # count good guides
+        # were the guides recognized according to allowed edit distance
+        if (guide_ed_read1<=guide_edit_threshold):
+            guides_recognized += 1
+            if paired:
+                if (guide_ed_read2<=guide_edit_threshold):
+                    guides_recognized += 1
+                    valid_constructs += 1
+                    # report valid constructs
+                    if library is not None:
+                        if construct in library:
+                            constructs_recognized+=1
+                        else:
+                            constructs_unrecognized+=1
+
+                    # add to construct counter
+                    construct_counter[construct]+=1
+                else:
+                    guides_unrecoginzed += 1
+
+            else:
+                construct_counter[construct]+=1
+                valid_constructs += 1
+                # report valid constructs
+                if library is not None:
+                    if construct in library:
+                        constructs_recognized+=1
+                    else:
+                        constructs_unrecognized+=1
+        else:
+            guides_unrecoginzed += 1
+            if (guide_ed_read2<=guide_edit_threshold):
+                guides_recognized += 1
+            else:
+                guides_unrecoginzed += 1 
+
+
+
+    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count, valid_constructs/read_count*100 ))
+    log.info("Writing outputs.")
+
+    # finally write out counts and barcode paths
+    with open(output_counts_path, 'w') as handle:
+        handle.write("#Total Fragments: {}\n".format(total_count))
+        handle.write("#Fragments Considered: {}\n".format(reads_considered))
+        handle.write("#Guides Passing: {}\n".format(guides_recognized))
+        handle.write("#Guides Failing: {}\n".format(guides_unrecoginzed))
+        if library is not None:
+            handle.write("#Constructs Recognized: {}\n".format(constructs_recognized))
+            handle.write("#Constructs Unrecognized: {}\n".format(constructs_unrecognized))
+
+        # write stats
+        if library is not None:
+            # use library to add write out extra columns
+            # only write constructs we are interested in
+            header = ["construct_id","target_a_id","probe_a_id","target_b_id","probe_b_id","count"]
+            out_line = "\t".join(header)
+            handle.write("{}\n".format(out_line))
+            for construct in sorted(library):
+                info = library[construct]
+                count = construct_counter[construct]
+                to_write = [construct] + [info[i] for i in header[1:-1]] + [str(count)]
+                out_line = "\t".join(to_write)
+                try:
+                    handle.write("{}\n".format(out_line))
+                except UnicodeEncodeError:
+                    print(out_line)
+                    sys.exit()
+        else:
+            header = ["construct_id","count"]
+            out_line = "\t".join(header)
+            handle.write("{}\n".format(out_line))
+            for construct in sorted(construct_counter):
+                count = construct_counter[construct]
+                to_write = [construct, str(count)]
+                out_line = "\t".join(to_write)
+                handle.write("{}\n".format(out_line))
+
+
+    return 0
+
+def count_good_constructs_and_barcodes(bam_file_path, 
     library = None,
     guide_edit_threshold = 2,
     barcode_edit_threshold = 0,
@@ -334,8 +711,7 @@ def count_good_constructs(bam_file_path,
             # no barcode read, assume bad 
             log.debug("No barcode tag found in read: {}".format(read.qname))
             barcode = None 
-            # one more than threshold so it never passes
-            barcode_ditance = barcode_edit_threshold+1 
+            barcode_distance = barcode_edit_threshold+1 # one more than threshold so it never passes
             pass
 
         # Tabulate construct counts

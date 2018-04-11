@@ -17,11 +17,12 @@ import argparse
 import pandas as pd
 import numpy as np
 
-import rpy2.robjects.numpy2ri 
-rpy2.robjects.numpy2ri.activate()
 
-from irls import *
-from weight import *
+#from irls import *
+#from weight import *
+
+import ctg.irls as irls
+import ctg.weight as weight
 
 from statsmodels.distributions.empirical_distribution import ECDF
 import scipy.sparse as sps

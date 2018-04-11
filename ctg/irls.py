@@ -195,33 +195,25 @@ def calc_eij(fp, fc, expressed=None):
 
     return eij
 
+
+
+
+
+
+
+
 def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
-    """ The iterative least squares fitting function of single gene fitnesses.
-
-    Args:
-        fc (matrix):  A NxN matrix of observed fitnesses for each construct.
-            N is the number of probes. Columns and rows are individual probes
-            and the the value for [n,m] is the observed fitness of the dual
-            mutant comprised of probe m and probe n.  This fitness is the slope
-            of a regression  of log2 normalized abundances vs time. Matrix is
-            symmetric.
-        w0 (matrix): A NxN matrix of inital"weights" which is a boolean value 
-            to include a given construct pair in the fit; 1 is True, include the
-            pair, while 0 is False, do not include it. Used to silence bad
-            constructs. N is the number of probes. A probe pair or construct is
-            given a 0 if it was not measured in the] dataset or is deemed poor.
-        ag (int): Which dimension to aggregate data across
-        tol (float): The error tolerance threshold which stops the iteration.
-        maxit (int): The maximum number of iterations to perform should 'tol'
-            never be satisfied.
-    Returns:
-        fp (list): The individual probe fitnesses. A list of floats of length N,
-            the number of probes.
-        eij (matrix): A symmetric matrix of floats corresponding to the raw pi
-            scores resulting from the fit. Size if NxN where N is the number of
-            probes.
-    """
-
+    """ The iterative least squares fitting function of single gene fitnesses
+        
+        Args:
+            fc (matrix): A NxN matrix of observed fitnesses for each construct.
+            w0 (matrix): A NxN matrix of boolean weights
+            ag (float): Number of standard devs to use in biweight
+            tol (float): The error tolerance threshold which stops the iteration.
+            maxiter (int): max number of iteration to perform
+        Return:
+            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
+    """ 
     # subset the constuct fitness matrix to the upper triangle (its symmetric)
     # filter out bad constructs, based on w0 mask
     expressed = sps.triu(w0).astype(np.bool)
@@ -264,32 +256,20 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
     # return final results
     return fp, eij
 
-def irls_multi_condition(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
+
+
+
+def irls_multi_condition(fc, w0, ag=2., tol=1e-3, maxiter=50, all = True):
     """ The iterative least squares fitting function of single gene fitnesses
-    for multiple conditions simultaneously.
-    
-    Args:
-        fc (matrix):  A NxN matrix of observed fitnesses for each construct.
-            N is the number of probes. Columns and rows are individual probes
-            and the the value for [n,m] is the observed fitness of the dual
-            mutant comprised of probe m and probe n.  This fitness is the slope
-            of a regression  of log2 normalized abundances vs time. Matrix is
-            symmetric.
-        w0 (matrix): A NxN matrix of inital"weights" which is a boolean value 
-            to include a given construct pair in the fit; 1 is True, include the
-            pair, while 0 is False, do not include it. Used to silence bad
-            constructs. N is the number of probes. A probe pair or construct is
-            given a 0 if it was not measured in the] dataset or is deemed poor.
-        ag (int): Which dimension to aggregate data across
-        tol (float): The error tolerance threshold which stops the iteration.
-        maxit (int): The maximum number of iterations to perform should 'tol'
-            never be satisfied.
-    Returns:
-        fp (list): The individual probe fitnesses. A list of floats of length N,
-            the number of probes.
-        eijs (list): A list of symmetric matrices of floats corresponding to
-            the raw pi scores resulting from the fit for each condition. Size of
-            each matrix is NxN where N is the number ofprobes.
+        
+        Args:
+            fc (matrix): A NxN matrix of observed fitnesses for each construct.
+            w0 (matrix): A NxN matrix of boolean weights
+            ag (float): Number of standard devs to use in biweight
+            tol (float): The error tolerance threshold which stops the iteration.
+            maxiter (int): max number of iteration to perform
+        Return:
+            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
     """
 
     # init holders for cross condition system of equations

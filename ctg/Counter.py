@@ -1,10 +1,10 @@
-
 import os
 import time
-import align
 import shutil
 import logging
-import count
+
+import ctg.count as count
+import ctg.align as align
 
 class Counter():
 
@@ -215,12 +215,18 @@ class Counter():
             raise RuntimeError("Bam does not exists. Must first align fastqs.")
 
         log.info("Couting aligned constructs.")
-        count.count_good_constructs(self.aligned_bam,
-            library = self.library, 
-            guide_edit_threshold = self.guide_edit_threshold,
-            barcode_edit_threshold = self.barcode_edit_threshold,
-            output_counts_path = self.output_counts,
-            output_barcodes_path = self.output_barcodes)
+        if self.barcode:
+            count.count_good_constructs_and_barcodes(self.aligned_bam,
+                library = self.library, 
+                guide_edit_threshold = self.guide_edit_threshold,
+                barcode_edit_threshold = self.barcode_edit_threshold,
+                output_counts_path = self.output_counts,
+                output_barcodes_path = self.output_barcodes)
+        else:
+            count.count_good_constructs(self.aligned_bam,
+                library = self.library, 
+                guide_edit_threshold = self.guide_edit_threshold,
+                output_counts_path = self.output_counts)
 
 
         return
