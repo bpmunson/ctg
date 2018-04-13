@@ -9,10 +9,6 @@ from scipy.stats import t
 from ctg.config import config
 import ctg.calculate_abundance as calculate_abundance
 
-from rpy2 import robjects
-from rpy2.robjects.packages import importr
-from rpy2.robjects.numpy2ri import numpy2ri
-
 '''
 The file format below is hardcoded for Amanda's files. This can be changed by
 later by passing a global config object for the run (or just additional
@@ -194,12 +190,19 @@ def _validate_time(counts_shape, times):
 #
 #     return abundance.reshape((n_reps, n_timepts))
 
+class _masker(object):
+    def __init__(self, counts, abundance, min_good_tpts=2): 
+        self.mask = counts > abundance
+        self.bad = self.mask.sum(axis=2) < min_good_tpts
+        self.allbad = self.bad.all(axis=0)
 
-def fit_ac_fc(abundance, counts, times, n_good=2,
+        self.mask[self.bad] = False
+
+def fit_ac_fc(abundance, counts, times, min_good_tpts=2,
                 replicate_axis=0, samples_axis=1, timepoints_axis=2,
-                keep_names=False,
                 min_counts_threshold=10,
-                verbose=False):
+                verbose=False): 
+    
     '''fit_ac_fc
 
     This is a line by line recapitulation of Amanda's code (vectorized using
@@ -216,24 +219,16 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
           to be in the files, and if keep_names is True, the names will be returned
           in the return statement. Else it will be thrown away
 
-    TODO: Figure out why lfdr is different
-    TODO: Reimplement lfdr in python
-    TODO: Refactor
+
     TODO: Update Docstrings
     TODO: Confirm input output formats
 
     Note: validation is based on the counts_file'''
-
-    # try:
-    #     assert type(abundance) == type(counts)
-    # except AssertionError:
-    #     raise ValueError('Please input both strings for abundance and counts or both numpy arrays')
-
-    #if isinstance(abundance, str):
+    
     abundance, counts, names = prep_input(abundance,
-                                            counts,
-                                            min_counts_threshold=min_counts_threshold,
-                                            verbose=verbose)
+                                        counts,
+                                        min_counts_threshold=min_counts_threshold,
+                                        verbose=verbose)
 
     counts = _validate_counts(counts)
 
@@ -243,15 +238,16 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
     times = _validate_time(counts.shape, times)
     #ab = _validate_abundance(counts.shape, ab)
 
-    bad = (counts > ab).sum(axis=2) < n_good
-    allbad = bad.all(axis=0)
+    mask = _masker(counts, ab, min_good_tpts=min_good_tpts)
+    fc, ac, xfit = _estimate_fitness(counts, times, mask)
+    sdfc, p_t = _estimate_pvalue(xfit, fc, counts, times, mask)
+    
+    return ac, fc, mask.allbad, sdfc, p_t, names
+    
 
-    mask = counts > ab
-    useless = mask.sum(axis=2) < 2 #NOTE: Not sure this is needed
-    mask[useless] = False
-
-    counts_masked = np.ma.array(data=counts, mask=~mask)
-    time_masked = np.ma.array(data=times, mask=~mask)
+def _estimate_fitness(counts, times, mask): 
+    counts_masked = np.ma.array(data=counts, mask=~mask.mask)
+    time_masked = np.ma.array(data=times, mask=~mask.mask)
 
     mean_counts = np.ma.mean(counts_masked, axis=2).data
     mean_time = np.ma.mean(time_masked, axis=2).data
@@ -259,23 +255,26 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
     f = _cov(counts_masked, time_masked, axis=2).data
 
     fc = np.divide(f.sum(axis=0), var_time.sum(axis=0))
-    fc[allbad] = 0
+    fc[mask.allbad] = 0
 
     ac = mean_counts - (fc*mean_time)
-    ac[bad] = counts[bad,0]
+    ac[mask.bad] = counts[mask.bad,0]
 
     alpha = -np.log2(np.power(2,ac).sum(axis=1))[...,np.newaxis]
     ac = ac + alpha
-
+    
     lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times).sum(axis=1))
     xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis].transpose(0,2,1)
+    
+    return fc, ac, xfit
 
-    df = mask.sum(axis=2).sum(axis=0) - 2
-    df[allbad] = 0
-
-    counts_masked_2d = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask))
-    xfit_masked_2d = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask))
-    time_masked_2d = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask))
+def _estimate_pvalue(xfit, fc, counts, times, mask):    
+    counts_masked_2d = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask.mask))
+    xfit_masked_2d = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask.mask))
+    time_masked_2d = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask.mask))
+    
+    df = mask.mask.sum(axis=2).sum(axis=0) - 2
+    df[mask.allbad] = 0
 
     n = xfit_masked_2d - counts_masked_2d
     num = np.sqrt(np.power(n,2).sum(axis=1))
@@ -285,7 +284,7 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
 
     #NOTE: Hardcode
     sdfc = np.divide(num, denom).data
-    sdfc[allbad] = 0.1
+    sdfc[mask.allbad] = 0.1
 
     has_sd = df > 0
     median_sd = np.median(sdfc[has_sd])
@@ -298,20 +297,8 @@ def fit_ac_fc(abundance, counts, times, n_good=2,
 
     tstat = tstat_masked.data
     p_t = np.array([2*t.cdf(-abs(i),j) if j > 0 else 1 for i,j in zip(tstat, df)])
-
-    qvalue = importr('qvalue')
-    r_pt = numpy2ri(p_t[has_sd]) #Missing has_sd
-
-    lfdr = np.ones((n_samples))
-    lfdr[has_sd] = np.array(qvalue.lfdr(r_pt, method="bootstrap")) #NOTE: Still deviates from ctg
-
-    #For debugging
-    #return ac, fc, allbad, sdfc, df, p_t, lfdr, names, lmbda, xfit, mask
-
-    if keep_names:
-        return ac, fc, allbad, sdfc, df, p_t, lfdr, names
-    else:
-        return ac, fc, allbad, sdfc, df, p_t, lfdr
+    
+    return sdfc, p_t
 
 
 if __name__ == "__main__":
