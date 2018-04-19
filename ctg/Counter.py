@@ -3,12 +3,19 @@ import time
 import shutil
 import logging
 
-import ctg.count as count
-import ctg.align as align
+#import ctg.core.count as count
+#import ctg.core.align as align
+
+from ctg.core import count
+from ctg.core import align
 
 class Counter():
 
     def __init__(self, library, fastq1,
+        guide_5p_r1 = None,
+        guide_3p_r1 = None,
+        guide_5p_r2 = None,
+        guide_3p_r2 = None,
         fastq2=None,
         input_bam=None,
         barcode=None, 
@@ -16,19 +23,12 @@ class Counter():
         barcode_read = '1',
         guide_edit_threshold=2,
         barcode_edit_threshold =0,
-        guide_5p_r1 = "TATATATCTTGTGGAAAGGACGAAACACCG",
-        guide_3p_r1 = "GTTTCAGAGCTATGCTGGAAACTGCATAGCAAGTTGAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGCTTTTTTGTACTGAGGCCACCTTAACACGCGATGATATTGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNGCTATTACGAGCGCTTGGAT",
-        guide_5p_r2 = "CTTGGAGAAAAGCCTTGTTTG",
-        guide_3p_r2 = "GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGG",
         guide_length_r1 = 20,
         guide_length_r2 = 20,
+        sample = "Sample",
         output_counts = "/dev/stdout",
         output_bam = None,
         output_barcodes = None,
-        sample = None,
-        time_point = None,
-        replicate = None,
-        get_name_from_fastq = False,
         threads = 1):
 
         # read in library 
@@ -48,7 +48,7 @@ class Counter():
         self.guide_length_r2 = guide_length_r2
         self.guide_edit_threshold = guide_edit_threshold
         self.barcode_edit_threshold = barcode_edit_threshold
-        
+        self.sample = sample 
         self.output_bam = output_bam
         self.output_counts = output_counts
         self.output_barcodes = output_barcodes
@@ -66,6 +66,10 @@ class Counter():
         # store aligned_bam if supplied
         self.aligned_bam = input_bam
 
+        # overwrite sample if None
+        if self.sample is None:
+            self.sample = os.path.splitext(os.path.basename(self.fastq1))[0]
+
         # check the supplied parameters
         self._check_args()
 
@@ -76,14 +80,14 @@ class Counter():
             if (self.barcode_read == "2"):
                 if (self.fastq2 is None):
                     logging.error("Barcode was specified in read 2 but no read 2 fastq was passed.")
-                    raise RuntimeError("Bad arguments")
-                if self.barcode_location +len(self.barcode)> len(self.guide_5p_r2)+len(self.guide_3p_r2)+self.guide_length_r2:
+                    #raise RuntimeError("Bad arguments")
+                if self.barcode_location +len(self.barcode) > len(self.guide_5p_r2)+len(self.guide_3p_r2)+self.guide_length_r2:
                     logging.error("Barcode position extends beyond expected read length.")
-                    raise RuntimeError("Bad arguments")
+                    #raise RuntimeError("Bad arguments")
             else:
-                if self.barcode_location +len(self.barcode)> len(self.guide_5p_r1)+len(self.guide_3p_r1)+self.guide_length_r1:
+                if self.barcode_location +len(self.barcode) > len(self.guide_5p_r1)+len(self.guide_3p_r1)+self.guide_length_r1:
                     logging.error("Barcode position extends beyond expected read length.")
-                    raise RuntimeError("Bad arguments")
+                    #raise RuntimeError("Bad arguments")
 
     def _parse_fastq_name(self):
         """ Parse fastq name to get sample, time point, and replicate information
@@ -220,11 +224,13 @@ class Counter():
                 library = self.library, 
                 guide_edit_threshold = self.guide_edit_threshold,
                 barcode_edit_threshold = self.barcode_edit_threshold,
+                sample = self.sample,
                 output_counts_path = self.output_counts,
                 output_barcodes_path = self.output_barcodes)
         else:
             count.count_good_constructs(self.aligned_bam,
                 library = self.library, 
+                sample = self.sample,
                 guide_edit_threshold = self.guide_edit_threshold,
                 output_counts_path = self.output_counts)
 

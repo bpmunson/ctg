@@ -21,8 +21,8 @@ import numpy as np
 #from irls import *
 #from weight import *
 
-import ctg.irls as irls
-import ctg.weight as weight
+import ctg.core.irls as irls
+import ctg.core.weight as weight
 
 from statsmodels.distributions.empirical_distribution import ECDF
 import scipy.sparse as sps

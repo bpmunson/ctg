@@ -5,7 +5,8 @@ CTG - Compositionality and Time course aware Genetic interactions anaylsis
 
 """
 __version__ = 0.1
-import argparse
+#import argparse
+import configargparse
 import sys
 import os
 import logging
@@ -24,32 +25,38 @@ def count_parser(subparser):
     count_subparser.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
     count_subparser.add_argument("--threads", action="store", required=False, default=1, help='Number of threads to use.')
 
+    count_subparser.add_argument("-c", "--config", required=False, is_config_file=True, help="Path to config file.")
 
     # required arguments
     # fastqs 
     count_subparser_req=count_subparser.add_argument_group(title='Required arguments',description='')
     count_subparser_req_me = count_subparser_req.add_mutually_exclusive_group(required=True)
-    count_subparser_req_me.add_argument("--fastq1", action="store", default=None, help='File with read 1 mates.  Can be gzipped.')
-    count_subparser_req_me.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
+    count_subparser_req_me.add_argument("-1","--fastq1", action="store", default=None, help='File with read 1 mates.  Can be gzipped.')
+
 
     # library defintion
-    count_subparser_req.add_argument("--library", action="store", required=True, help='Library defintion file in csv format.  ')
+    count_subparser_req.add_argument("-l","--library", action="store", required=True, help='Library defintion file in csv format.  ')
+
 
     # optional arguments
     count_subparser_opt=count_subparser.add_argument_group(title='Optional input arguments:',description='')
-    count_subparser_opt.add_argument("--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
+    count_subparser_opt.add_argument("-2","--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
+    count_subparser_opt.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
 
+    count_subparser_opt.add_argument("--sample", action="store", required=False, default=None, help="Sample name to add to counts file.")
     # guide structure
-    count_subparser_opt_read=count_subparser.add_argument_group(title='Optional arguments for read structure',description='')
-    count_subparser_opt_read.add_argument("--guide_5p_r1", action="store", default="TATATATCTTGTGGAAAGGACGAAACACCG", type=str, help="Expected 5' end of read 1.")
-    count_subparser_opt_read.add_argument("--guide_3p_r1", action="store", default="GTTTCAGAGCTATGCTGGAAACTGCATAGCAAGTTGAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGCTTTTTTGTACTGAGGCCACCTTAACACGCGATGATATTGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNGCTATTACGAGCGCTTGGAT", type=str, help="Expected 3' end of read 1.")
-    count_subparser_opt_read.add_argument("--guide_5p_r2", action="store", default="CTTGGAGAAAAGCCTTGTTTG", type=str, help="Expected 5' end of read 2.")
-    count_subparser_opt_read.add_argument("--guide_3p_r2", action="store", default="GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGG", type=str, help="Expected 3' end of read 2.")
+    count_subparser_req_read=count_subparser.add_argument_group(title='Required arguments for read structure',description='')
+    count_subparser_req_read.add_argument("--guide_5p_r1", action="store", required=True, type=str, help="Expected 5' end of read 1.")
+    count_subparser_req_read.add_argument("--guide_3p_r1", action="store", required=True, type=str, help="Expected 3' end of read 1.")
+    count_subparser_req_read.add_argument("--guide_5p_r2", action="store", required=True, type=str, help="Expected 5' end of read 2.")
+    count_subparser_req_read.add_argument("--guide_3p_r2", action="store", required=True, type=str, help="Expected 3' end of read 2.")
 
     # barcode structure : # TODO make these all required if one is set
-    count_subparser_opt_read.add_argument("--barcode", action="store", default=None, help="IUPAC barcode structure to search for in construct backbone. Ex: WSWSWSWSWSWSWSWSWSWS. Should be specified in the guide backbone as N.")
-    count_subparser_opt_read.add_argument("--barcode_location", action="store", default=175, help="The starting base pair of the barcode in the construct.")
-    count_subparser_opt_read.add_argument("--barcode_read", action="store", default=1, help="The read in which the barcode occurs.")
+    count_subparser_opt_barcode=count_subparser.add_argument_group(title='Optional arguments for finding barcodes/UMI.',description='')
+
+    count_subparser_opt_barcode.add_argument("--barcode", action="store", default=None, help="IUPAC barcode structure to search for in construct backbone. Ex: WSWSWSWSWSWSWSWSWSWS. Should be specified in the guide backbone as N.")
+    count_subparser_opt_barcode.add_argument("--barcode_location", action="store", default=175, type=int, help="The starting base pair of the barcode in the construct.")
+    count_subparser_opt_barcode.add_argument("--barcode_read", action="store", default='1', type=str, help="The read in which the barcode occurs.")
 
 
     # Threshold for counting
@@ -121,12 +128,13 @@ def score_parser(subparser):
     #score_parser.add_argument("--null_aware", action="store_true", default=True, help="Treat the null probes different in rankings.")
 
 def ctg_parseargs():
-    parser = argparse.ArgumentParser(description="CTG analysis.")
+    parser = configargparse.ArgumentParser(description="CTG analysis.")
 
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--verbose", action="store_true", default=False, help="Verbose output.")
     parser.add_argument("--quiet", action="store_true", default=False, help="Supress all warnings and info.  Superceeds --verbose.")
     parser.add_argument("--debug", action="store_true", default=False, help="Debug output. ")
+
 
     subparser = parser.add_subparsers(help="Commands Available", dest="command")
 
@@ -157,6 +165,7 @@ def counting_main(options):
             guide_3p_r1 = options.guide_3p_r1,
             guide_5p_r2 = options.guide_5p_r2,
             guide_3p_r2 = options.guide_3p_r2,
+            sample = options.sample,
             output_counts = options.counts_file,
             output_bam = options.bam_file,
             output_barcodes = options.barcodes_file,
@@ -210,6 +219,7 @@ def main():
     """
     parser = ctg_parseargs()
     args = parser.parse_args()
+    
     # set up logger
     level = logging.WARNING
     if args.quiet:
@@ -252,76 +262,3 @@ if __name__ == '__main__':
     main()
 
 
-
-
-"""
-#!/bin/bash
- 
-
-#$ -cwd 
-#$ -l h_vmem=8G
-#$ -o ./eo/
-#$ -e ./eo/
-#$ -N ctg_count
-#$ -pe smp 16
-
-
-export PATH="/cellar/users/bpmunson/Desktop/dual_cripsr/miniconda3/bin:$PATH"
-
-python ~/scratch/crappy_devel/cross_condition/crappy/src/ctg \
-    count \
-    --fastq1 igm-storage1.ucsd.edu/180302_D00611_0607_AHCV7CBCX2_Ideker_Ana_PE_Combo/Data/Fastq/DeCIPheR1_S1_L001_R1_001.fastq.gz \
-    --fastq2 igm-storage1.ucsd.edu/180302_D00611_0607_AHCV7CBCX2_Ideker_Ana_PE_Combo/Data/Fastq/DeCIPheR1_S1_L001_R2_001.fastq.gz \
-    --library library_defintion/library_batch_1_9.csv \
-    --counts_file counts.txt \
-    --bam_file aln.bam \
-    --barcodes_file barcodes.txt \
-    --barcode WSWSWSWSWSWSWSWSWSWSWSWSWSWSWS
-"""
-
-
-
-"""
-# run count on 
-ctg count -g --library library_definition.csv --fastq1 testing_T0_1_r1.fastq.gz --fastq2 testing_T0_1_r2.fastq.gz 
-ctg count -g --library library_definition.csv --fastq1 testing_T0_2_r1.fastq.gz --fastq2 testing_T0_2_r2.fastq.gz
-ctg count -g --library library_definition.csv --fastq1 testing_T1_1_r1.fastq.gz --fastq2 testing_T1_1_r2.fastq.gz
-ctg count -g --library library_definition.csv --fastq1 testing_T1_2_r1.fastq.gz --fastq2 testing_T1_2_r2.fastq.gz
-
-# run count aggregator
-ctg aggregate --parse_name_from_files --library --library library_definition.csv --counts_files *_counts.txt -o testing_time_point_counts.txt
-
-# run scoring pipeline
-ctg score -c testing_time_point_counts.txt -o testing.pkl
-"""
-
-
-"""
-python ../../src/ctg count \
---library CV4_2spacers_w_probe_names_wo_duplicate.txt \
---guide_5p_r1 TATATATCTTGTGGAAAGGACGAAACACCG \
---guide_3p_r1 GTTTCAGAGCTATGCTGGAAACTGCA \
---guide_5p_r2 CCTTATTTTAACTTGCTATTTCTAGCTCTAAAAC \
---guide_3p_r2 CAAACAAGGCTTTTCTCCAAGG \
---fastq1 ~/scratch/crappy_devel/cross_condition/crappy/data/test_data/input_data/A549/fastqs/A549-CV4-1000_d21_1_S3_L001_R1_001.fastq \
---fastq2 ~/scratch/crappy_devel/cross_condition/crappy/data/test_data/input_data/A549/fastqs/A549-CV4-1000_d21_1_S3_L001_R2_001.fastq \
---counts_file A549-CV4-1000_d21_1_S3_L001_counts.txt \
---bam_file A549-CV4-1000_d21_1_S3_L001_alignments.bam 
-
-
-export PATH="/cellar/users/bpmunson/crappy/bin:$PATH"
-base="testing_100k_1"
-ctg count \
-    --verbose \
-    --fastq1 "${base}_R1_001.fastq.gz" \
-    --fastq2 "${base}_R2_001.fastq.gz" \
-    --library library_defintion/library_definition.csv \
-    --counts_file "${base}_counts.txt" \
-    --bam_file "${base}_alignments.bam"  \
-    --barcodes_file "${base}_barcodes.txt" \
-    --barcode WSWSWSWSWSWSWSWSWSWSWSWSWSWSWS \
-    --threads 16
-
-
-bowtie2 
-"""

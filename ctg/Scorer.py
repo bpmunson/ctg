@@ -7,10 +7,10 @@ import pandas as pd
 import numpy as np
 import scipy.sparse as sps
 
-import ctg.fit_ac_fc as fit_ac_fc
-import ctg.irls as irls
-import ctg.weight as weight
-import ctg.sample as sample
+import ctg.core.fit_ac_fc as fit_ac_fc
+import ctg.core.irls as irls
+import ctg.core.weight as weight
+import ctg.core.sample as sample
 
 class Scorer(object):
 
@@ -18,17 +18,12 @@ class Scorer(object):
         abundance_file=None,
         min_counts_threshold=10,
         min_time_points = 2,
-        replicate_axis = 0,
-        samples_axis = 1,
-        timepoints_axis = 2,
         verbose = False,
         bi_weight_stds = 2,
         tol = 1e-3,
         maxiter = 50,
         n_probes_per_target = 2,
-        epsilon = 1e-6,
         null_target_id = "NonTargeting",
-        use_full_dataset_for_ranking = True,
         niter = 2,
         testing = False,
         output = None,
@@ -43,17 +38,12 @@ class Scorer(object):
         self.abundance_file = abundance_file
         self.min_counts_threshold = min_counts_threshold 
         self.min_time_points = min_time_points
-        self.replicate_axis = replicate_axis
-        self.samples_axis = samples_axis
-        self.timepoints_axis = timepoints_axis
         self.verbose = verbose
         self.bi_weight_stds = bi_weight_stds
         self.tol = tol
         self.maxiter = maxiter
         self.n_probes_per_target = n_probes_per_target
-        self.epsilon = epsilon
         self.null_target_id = null_target_id
-        #self.use_full_dataset_for_ranking = use_full_dataset_for_ranking
         self.niter = niter
         self.testing = testing
         self.output = output
@@ -89,9 +79,6 @@ class Scorer(object):
                                                                          self.timepoint_counts_file,
                                                                          self.times,
                                                                          n_good = self.min_time_points,
-                                                                         replicate_axis = self.replicate_axis,
-                                                                         samples_axis = self.samples_axis,
-                                                                         timepoints_axis = self.timepoints_axis,
                                                                          keep_names=True,
                                                                          min_counts_threshold=self.min_counts_threshold,
                                                                          verbose=self.verbose)
@@ -102,7 +89,6 @@ class Scorer(object):
         self.names = names
          # get initial weights
         w0 = self._get_initial_weights(allbad)
-
         # build into sparse matrices
         self.fc, self.probes = self._make_sparse_matrix(names['probe_a_id'], names['probe_b_id'], fc, return_probes=True)
         self.sdfc = self._make_sparse_matrix(names['probe_a_id'], names['probe_b_id'], sdfc)
@@ -110,38 +96,6 @@ class Scorer(object):
         self.w0 = self._make_sparse_matrix(names['probe_a_id'], names['probe_b_id'], w0)
         # get and store target ids
         self.targets = self._build_target_array()
-
-        if self.testing:
-            # get dataframes
-            self.fc = self._make_symmetric_matrix(names['probe_a_id'], names['probe_b_id'], fc, return_dataframe=True)
-            self.sdfc = self._make_symmetric_matrix(names['probe_a_id'], names['probe_b_id'], sdfc, return_dataframe=True)
-            self.pp = self._make_symmetric_matrix(names['probe_a_id'], names['probe_b_id'], p_t, return_dataframe=True)
-            self.w0 = self._make_symmetric_matrix(names['probe_a_id'], names['probe_b_id'], w0, return_dataframe=True).astype(int)
-
-            # also need to reload the posteriors because they are off from fit_ac_fc at the moment
-            src = os.path.dirname(os.path.realpath(__file__))
-            path = os.path.join(src,"..",'data','test_data','output_data','Notebook8Test_pp_0_benchmark.csv')
-            self.pp = pd.read_csv(path, sep=",", index_col=0, header=0)
-            
-            # reorder according to RS/AB for testing purposes
-            # this is required because of the random number generator needs the same format
-            benchmark = self.pp
-
-            # reset indices
-            self.fc = self.fc.reindex(index=benchmark.index, columns=benchmark.index)
-            self.sdfc = self.sdfc.reindex(index=benchmark.index, columns=benchmark.index)
-            self.pp = self.pp.reindex(index=benchmark.index, columns=benchmark.index)
-            self.w0 = self.w0.reindex(index=benchmark.index, columns=benchmark.index)
-
-            # restore probes
-            self.probes = list(self.fc.index)
-            self.targets = self._build_target_array()
-
-            # convert back to sparse matrix
-            self.fc = sps.csr_matrix(self.fc)
-            self.pp = sps.csr_matrix(self.pp)
-            self.w0 = sps.csr_matrix(self.w0)
-            self.sdfc = sps.csr_matrix(self.sdfc)
 
     def run_pi_score_calculation(self):
         """ Description
@@ -226,41 +180,9 @@ class Scorer(object):
         if self.output:
             self.results.to_csv(self.output, sep="\t", header=True, index=False)
 
-
-
-
-
     ###############################################################################################
     ### Helper functions
     ###############################################################################################
-    def _make_symmetric_matrix(self, probe_a, probe_b, feature, return_dataframe=False):
-        """ make a symmetric matrix or data frame from a list of probes pairs and feature vector
-        """
-        #TODO: assert they are they same length
-
-        # make a dataframe
-        df = pd.concat([probe_a, probe_b], axis=1)
-        df.loc[:,'feature'] = feature
-        df.columns=['probe_a_id', 'probe_b_id', 'feature']
-
-        # pivot the table
-        dfp = df.pivot(index="probe_a_id", columns="probe_b_id", values='feature')
-
-        # get a common index
-        index = dfp.index.union(dfp.columns)
-
-        # reindex the pivoted table
-        dfp = dfp.reindex(index=index, columns=index, fill_value = 0).fillna(0)
-
-        # make symmetric
-        vals = dfp.values
-        vals = vals + np.transpose(vals)
-
-        if return_dataframe:
-            return pd.DataFrame(vals, index=dfp.index, columns=dfp.columns)
-        else:
-            return vals
-
     def _make_sparse_matrix(self, probe_a, probe_b, feature, return_probes=False):
         """ The iterative least squares fitting function of single gene fitnesses
 
@@ -294,7 +216,6 @@ class Scorer(object):
             return m
 
     def _get_initial_weights(self, allbad):
-
         """ Make intitial boolean weights from weather all replicates were bad for a given construct
         """
         if allbad is None:
@@ -308,7 +229,6 @@ class Scorer(object):
     def _build_target_array(self):
         """ Description
         """
-
         if self.probes is None:
             raise AssertionError('Must first construct probe array.')
         # get a list of all probes to targets from names datafame
