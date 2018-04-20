@@ -16,6 +16,7 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
+import logging
 
 
 #from irls import *
@@ -175,7 +176,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     if use_full_dataset_for_ranking:
         # if we want to use the full dataset for probe rankings, calculate it now
         # get initial fit of probe fitnesses based on construct fitnesses
-        fp_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
+        fp_0, eij_0 = irls.irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
 
         # if we want to use the full dataset for probe rankings, calculate it now
         # get initial fit of probe fitnesses based on construct fitnesses
@@ -188,7 +189,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None
@@ -211,10 +212,10 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         fc_1 = subsample(fc, pp, sdfc, seed=seed, testing = testing)
 
         # get unweighted estimates using subsampled construct fitnesses
-        fp, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, all=all)
+        fp, eij = irls.irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, all=all)
            
         # get weighted pi scores and target fitness 
-        pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, targets,
+        pi_scores, target_fitness = weight.weight_by_target(eij, fp, w0, probes, targets,
                                                     n_probes_per_target=n_probes_per_target,
                                                     null_target_id = null_target_id,
                                                     pre_computed_ranks = ranks
@@ -271,7 +272,7 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None
