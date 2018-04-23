@@ -23,6 +23,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import rankdata
 from collections import defaultdict
+import scipy.sparse as sps
 
 
 def magnitude_construct_weights(fpr, n_probes_per_construct=2):
