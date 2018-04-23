@@ -152,7 +152,6 @@ class Scorer(object):
                                                             tol = self.tol,
                                                             maxiter = self.maxiter,
                                                             n_probes_per_target = self.n_probes_per_target,
-                                                            epsilon = self.epsilon,
                                                             null_target_id = self.null_target_id,
                                                             niter = self.niter,
                                                             testing = self.testing,
@@ -165,7 +164,6 @@ class Scorer(object):
 
     def pickle(self):
         output = self.pickle_output
-        print(output)
         pickle.dump(self, open(output, 'wb'))
 
     def summarize(self):

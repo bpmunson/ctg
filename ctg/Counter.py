@@ -80,14 +80,19 @@ class Counter():
             if (self.barcode_read == "2"):
                 if (self.fastq2 is None):
                     logging.error("Barcode was specified in read 2 but no read 2 fastq was passed.")
-                    #raise RuntimeError("Bad arguments")
+                    raise RuntimeError()
                 if self.barcode_location +len(self.barcode) > len(self.guide_5p_r2)+len(self.guide_3p_r2)+self.guide_length_r2:
                     logging.error("Barcode position extends beyond expected read length.")
-                    #raise RuntimeError("Bad arguments")
+                    raise RuntimeError()
             else:
                 if self.barcode_location +len(self.barcode) > len(self.guide_5p_r1)+len(self.guide_3p_r1)+self.guide_length_r1:
                     logging.error("Barcode position extends beyond expected read length.")
-                    #raise RuntimeError("Bad arguments")
+                    raise RuntimeError()
+
+        if ( not self.guide_5p_r1 ) | ( not self.guide_3p_r1 ) | ( not self.guide_5p_r2 ) | ( not self.guide_3p_r2 ) :
+            logging.error("Must supply guide backbone structre: guide_5p_r1, guide_3p_r1, guide_5p_r2, guide_3p_r1.")
+            raise RuntimeError()
+
 
     def _parse_fastq_name(self):
         """ Parse fastq name to get sample, time point, and replicate information

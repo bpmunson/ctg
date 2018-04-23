@@ -113,7 +113,7 @@ def bowtie2_align(fastq, bt2_index_base, *args,
 
     # add 
     if guide_start or expected_barcode:
-        call.append("| add_tags")
+        call.append("| ctg add_tags")
         if guide_start:
             if guide_length is None:
                 raise RuntimeError()

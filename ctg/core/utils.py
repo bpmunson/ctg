@@ -1,5 +1,6 @@
 import numpy as np
 import gzip
+import pysam
 from collections import defaultdict
 
 def readfq(fp): # this is a generator function
