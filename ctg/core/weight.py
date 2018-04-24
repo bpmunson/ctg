@@ -213,8 +213,11 @@ def weight_by_target( eij, fp, w0, probes, targets,
             raise AssertionError('No null targets corresponding to "{}" were found'.format(null_target_id))
         # get mean of the null probe fitnesses
         null_mean = fp[ix].mean()
-        # subtract off null mean from all fitnesses
-        fp = fp - null_mean
+        if np.isnan(null_mean):
+            logging.error("Null mean not found. Ignoring.")
+        else:
+            # subtract off null mean from all fitnesses
+            fp = fp - null_mean
 
     if pre_computed_ranks is None:
         # rank the probes 
