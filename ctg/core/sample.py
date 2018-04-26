@@ -16,13 +16,12 @@ import os
 import argparse
 import pandas as pd
 import numpy as np
+import logging
 
 
-#from irls import *
-#from weight import *
 
-import ctg.irls as irls
-import ctg.weight as weight
+import ctg.core.irls as irls
+import ctg.core.weight as weight
 
 from statsmodels.distributions.empirical_distribution import ECDF
 import scipy.sparse as sps
@@ -85,62 +84,29 @@ def subsample(fc, pp, sdfc, seed=None, testing = False):
     sdfc_0 = sps.triu(sdfc)
     pp_0 = sps.triu(pp)
 
-    # get nonzero positions 
-    if testing:
-        if seed is None:
-            raise(BaseException("If testing for validation must provide a seed."))
+    # get random noise 
+    if seed:
+        np.random.seed(seed)
 
-        # basically use R random to mimick RS/A iterative pi scores
-        # define r functions to get randoms with predefined seed
-        rpy2.robjects.r('''
-            gen_fc1 <- function(fc_0, sdfc_0, pp_0, iter) {
-                utri<-upper.tri(fc_0)
-                ntri<-sum(utri)
-                nprobes = dim(fc_0)[1]
-                fc_1<-matrix(0,nrow=nprobes,ncol=nprobes) 
+    noise_arr = np.array([np.random.normal(loc=0, scale=sd) if sd>0 else 0 for sd in sdfc_0.data])
+    noise = sps.csr_matrix((noise_arr, sdfc_0.nonzero()), shape = sdfc_0.shape)
 
-                set.seed(iter)
-                fc0<-fc_0[utri]+rnorm(ntri,sd=sdfc_0[utri]) 
-                pp0<-pp_0[utri] 
+    # add noise to fc
+    fc_0 = fc_0 + noise
 
-                set.seed(iter)
-                draw<-ifelse(runif(ntri)<pp0,1,0) 
-                fc_1[utri]<-fc0*draw 
-                fc_1<-fc_1+t(fc_1) 
-                fc_1
-            }
-            ''')
-        r_fc = rpy2.robjects.r['gen_fc1']
-        fc_0 = np.asarray(fc_0.todense())
-        sdfc_0 = np.asarray(sdfc_0.todense())
-        pp_0 = np.asarray(pp_0.todense())
-        fc_1 = np.array(r_fc(fc_0, sdfc_0, pp_0, seed))
-        fc_1 = sps.csr_matrix(fc_1)
-    else:  
-        # get random noise 
-        if seed:
-            np.random.seed(seed)
+    # decide whether to use base on posterior probability 
+    if seed:
+        np.random.seed(seed)
 
-        noise_arr = np.array([np.random.normal(loc=0, scale=sd) if sd>0 else 0 for sd in sdfc_0.data])
-        noise = sps.csr_matrix((noise_arr, sdfc_0.nonzero()), shape = sdfc_0.shape)
+    #include = pp_0 < np.random.rand(pp_0.shape[0], pp_0.shape[1])
+    sampling_arr = np.random.rand(pp_0.count_nonzero())
+    include = pp_0 < sps.csr_matrix((sampling_arr, pp_0.nonzero()), shape=pp_0.shape)
 
-        # add noise to fc
-        fc_0 = fc_0 + noise
+    # multiply the construct matrix by boolean inclusion based on posterior proability
+    fc_0 = fc_0.multiply(include)
 
-        # decide whether to use base on posterior probability 
-        # TODO: why randomly draw, should we set a confidence threshold
-        if seed:
-            np.random.seed(seed)
-
-        #include = pp_0 < np.random.rand(pp_0.shape[0], pp_0.shape[1])
-        sampling_arr = np.random.rand(pp_0.count_nonzero())
-        include = pp_0 < sps.csr_matrix((sampling_arr, pp_0.nonzero()), shape=pp_0.shape)
-
-        # multiply the construct matrix by boolean inclusion based on posterior proability
-        fc_0 = fc_0.multiply(include)
-
-        # make symmeteric
-        fc_1 = fc_0 + fc_0.transpose()
+    # make symmeteric
+    fc_1 = fc_0 + fc_0.transpose()
 
     return fc_1
 
@@ -156,9 +122,6 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     use_full_dataset_for_ranking = True,
     all = True
     ):
-
-
-
     """
     Calculate the pi scores by iterative fitting
 
@@ -171,11 +134,10 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
 
 
     """
-
     if use_full_dataset_for_ranking:
         # if we want to use the full dataset for probe rankings, calculate it now
         # get initial fit of probe fitnesses based on construct fitnesses
-        fp_0, eij_0 = irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
+        fp_0, eij_0 = irls.irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
 
         # if we want to use the full dataset for probe rankings, calculate it now
         # get initial fit of probe fitnesses based on construct fitnesses
@@ -188,7 +150,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None
@@ -211,10 +173,10 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         fc_1 = subsample(fc, pp, sdfc, seed=seed, testing = testing)
 
         # get unweighted estimates using subsampled construct fitnesses
-        fp, eij = irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, all=all)
+        fp, eij = irls.irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, all=all)
            
         # get weighted pi scores and target fitness 
-        pi_scores, target_fitness = weight_by_target(eij, fp, w0, probes, targets,
+        pi_scores, target_fitness = weight.weight_by_target(eij, fp, w0, probes, targets,
                                                     n_probes_per_target=n_probes_per_target,
                                                     null_target_id = null_target_id,
                                                     pre_computed_ranks = ranks
@@ -271,7 +233,7 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None

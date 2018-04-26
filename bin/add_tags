@@ -3,12 +3,13 @@ import os
 import sys
 import pysam
 import argparse
-
+import logging
 
 # hot fix to imports working, this should be fixed with setup.py
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),"../"))
+#sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),"../"))
 
-from ctg.count import levenshtein_regex, get_guide_edit_distance, extract_barcode, add_tags
+from ctg.core.count import add_tags
+from ctg.version import __version__
 
 def main():
     parser = argparse.ArgumentParser(description="Add tags to aligned reads.")
@@ -17,19 +18,19 @@ def main():
     parser.add_argument("--barcode_start",action="store",type=int,default=None,required=False,help="Position of barcode in read")
     parser.add_argument("--guide_start", action="store", type=int,help="Position of the guide in the read.")
     parser.add_argument("--guide_length", action="store",type=int, help="Position of the guide in the read.")
-    #parser.add_argument("input_bam",action="store",help="input bam")
-    #parser.add_argument("output_bam",action="store",help="output bam")
+
     args = parser.parse_args()
 
     bam = pysam.AlignmentFile("-", "r")
 
     # get header
     header= bam.header.to_dict()
-    new_pg = {'CL':' '.join(sys.argv), 'ID':'CTG', 'PN':'add_tags', 'VN':0.1}
+    new_pg = {'CL':' '.join(sys.argv), 'ID':'CTG', 'PN':'add_tags', 'VN':__version__}
     header['PG'].append(new_pg)
     output = pysam.AlignmentFile("-", "w", header=header)
 
     while True:
+        logging.info("Reading in bam file and adding tags.")
         try:
             read = next(bam)
         except StopIteration:
@@ -45,6 +46,7 @@ def main():
         except OSError:
             break
 
+    logging.info("Finished")
     bam.close()
     output.close()
 

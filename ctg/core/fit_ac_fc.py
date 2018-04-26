@@ -6,8 +6,9 @@ from numpy.matlib import repmat
 import pandas as pd
 from scipy.stats import t
 
-from ctg.config import config
-import ctg.calculate_abundance as calculate_abundance
+from ctg.core.config import config
+import ctg.core.calculate_abundance as calculate_abundance
+
 
 '''
 The file format below is hardcoded for Amanda's files. This can be changed by
