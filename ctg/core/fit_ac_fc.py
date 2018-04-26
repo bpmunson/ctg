@@ -6,8 +6,10 @@ from numpy.matlib import repmat
 import pandas as pd
 from scipy.stats import t
 
-from ctg.core.config import config
-import ctg.core.calculate_abundance as calculate_abundance
+#from ctg.core.config import config
+import config
+#import ctg.core.calculate_abundance as calculate_abundance
+import calculate_abundance
 
 
 '''
@@ -118,8 +120,33 @@ def _read_counts_file(fileName, n_reps=None, t=None, columns_map=None, method='i
         except AssertionError: 
             print(counts_mat.shape)
             raise RuntimeError("Internal error... Counts matrix was reshaped incorrectly!")
-    
+
     return prefix, counts, counts_mat
+
+# def _validate_arguments(abundance=None, counts=None, times=None, method=None, n_reps=None, columns_map=None, col=None, 
+#                 names=None, min_good_tpts=None, min_counts_threshold=None): 
+
+#     print('\nHERE: ',counts)
+
+#     if method not in ['explicit', 'implicit']: 
+#         raise ValueError('method must only be explicit or implicit')
+
+#     elif method == 'explicit' and (n_reps is None or t is None or columns_map is None): 
+#         raise ValueError('n_reps (number of replicates), t (time points), and columns_map must be supplied if method is explicit!')
+
+#     if method == 'explicit': 
+#         #Validating optional arguments
+#         expected_columns = n_reps*len(times)
+#         if expected_columns != counts.shape[1]: 
+#             raise ValueError("Expected %s columns. Got %s" % (expected_columns, counts.shape[1]))
+            
+#         if len(columns_map) != len(times): 
+#             raise ValueError("Each time point needs a list of column indices!")
+            
+#         #Creating tuples for multiindex
+#         for i_ind, i in enumerate(columns_map): 
+#             if len(i) != n_reps: 
+#                 raise ValueError("Each list within columns_map needs to have the same length as n_reps")
 
 def _cov(x,y, axis=0):
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
@@ -191,7 +218,49 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
         names, _tps, _tps_mat = _read_counts_file(counts_file, n_reps=n_reps, t=t, columns_map=columns_map, method=method, col=col, sep=sep, **kwargs)
 
     elif isinstance(counts_file, pd.DataFrame):
-        _tps = counts_file #TODO: This option needs work (ensure multi-index, build?)
+        df = counts_file #TODO: This option needs work (ensure multi-index, build?)
+        names = df.iloc[:,:col]
+        _tps = df.iloc[:, col:]
+
+        if not isinstance(_tps.columns, pd.MultiIndex): 
+
+            if method=='explicit': 
+                if not isinstance(n_reps, int): 
+                    raise ValueError('n_reps must be an integer when method is explicit')
+
+                elif not isinstance(columns_map, list): 
+                    raise ValueError('columns map must be a list of lists')
+
+                #Validating optional arguments
+                expected_columns = n_reps*len(t)
+                if expected_columns != _tps.shape[1]: 
+                    raise ValueError("Expected %s columns. Got %s" % (expected_columns, counts.shape[1]))
+                    
+                if len(columns_map) != len(t): 
+                    raise ValueError("Each time point needs a list of column indices!")
+                    
+                #Creating tuples for multiindex
+                tmp = [None for _ in range(n_reps*len(t))]
+                for i_ind, i in enumerate(columns_map): 
+                    if len(i) != n_reps: 
+                        raise ValueError("Each list within columns_map needs to have the same length as n_reps")
+                        
+                    for j_ind, j in enumerate(i): 
+                        tmp[j] = (j_ind + 1, t[i_ind])
+                
+
+            elif method == 'implicit': 
+                tmp = _parse_index(_tps.columns)
+                #idx = pd.MultiIndex.from_tuples(_tmp, names=['reps', 'time'])
+                #_tps.columns = idx
+                #_tps.sort_index(axis=1, inplace=True)
+
+            idx = pd.MultiIndex.from_tuples(tmp, names=['reps', 'time'])
+            _tps.columns = idx    
+            _tps.sort_index(axis=1, inplace=True)
+
+        else: 
+            raise ValueError('method must be either explicit or implicit')
 
     if isinstance(abundance_file, str):
         ab = _read_abundance_thresholds_file(abundance_file) 
@@ -233,8 +302,8 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
     genes = pd.concat([cgA, cgB]).unique()
     genes.sort()
 
-    n = genes.shape[0]
-    mm = n*(n-1)/2
+    #n = genes.shape[0]
+    #mm = n*(n-1)/2
 
     gswitch = cgA > cgB
     ghold = cgA.loc[gswitch]
@@ -351,6 +420,8 @@ def fit_ac_fc(abundance, counts, times, method='implicit', n_reps=None, columns_
                 #replicate_axis=0, samples_axis=1, timepoints_axis=2,
                 #verbose=False): 
     
+    #TODO: Make times and t consistent as inputs
+
     '''fit_ac_fc
 
     Fits a fitness (growth rate) to the counts vs timepoints. After normalization, the function simply does
@@ -369,7 +440,7 @@ def fit_ac_fc(abundance, counts, times, method='implicit', n_reps=None, columns_
             forced into the shape according to the given parameters.
         n_reps (int, optional): Number of replicates. This argument is required if the method is explicit.
         columns_map (list of list of int, optional): Provides the explicit column to time points and replicates 
-            mapping. The list should have the same length has the number of time points. Each element contains
+            mapping. The list should have the same length as the number of time points. Each element contains
             a list whose elements are column index (0 index) in the order of the replicate number.
         col (int, optional): The column index where the counts start. Any columns before this is considered
             the names dataframe
@@ -388,11 +459,12 @@ def fit_ac_fc(abundance, counts, times, method='implicit', n_reps=None, columns_
         p_t (numpy array): p-value for each construct 
         names (dataframe): All the prefix information (see top doctsring)      
     '''
-    
+
+    #TODO: force times to be a list or 1D numpy array ONLY
+
     abundance, counts, names = _prep_input(abundance, counts,names=names,
                                         t=times, n_reps=n_reps, columns_map=columns_map, method=method, col=col,
-                                        min_counts_threshold=min_counts_threshold,
-                                        verbose=verbose)
+                                        min_counts_threshold=min_counts_threshold,)
 
     counts = _validate_counts(counts)
 
