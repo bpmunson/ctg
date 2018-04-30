@@ -1,3 +1,7 @@
+"""
+CTG utility functions.
+"""
+
 import numpy as np
 import gzip
 import pysam
@@ -5,6 +9,14 @@ from collections import defaultdict
 
 def readfq(fp): # this is a generator function
     """ Fastq file reader from Heng Li: https://github.com/lh3/readfq/blob/master/readfq.py 
+
+        Args: 
+            fp (file handle): a file handle to the fastq file
+        Yields:
+            read (tuple):
+                (read_id (str), sequence (str), quality (str) ) 
+                if the read is a fasta record then no quality is included in the read tuple
+
     """
     last = None # this is a buffer keeping the last unprocessed line
     while True: # mimic closure; is it a bad idea?

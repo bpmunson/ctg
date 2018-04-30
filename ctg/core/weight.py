@@ -1,24 +1,11 @@
 """
-Docstring
-
-
-This is a rewrite of the pi score weighting from Roman/Amanda's CTG pacakge.
-Ported to pure python.
-
-Replicate fiteness correlation
-dropping probes
-
-Todo:
-    method documentation
-    think about alt weighting strategies
-    unit tests
-
-    get rid of that regex garbage
-    rethink pandas strategy
+Functions to calculated weighted mean of probe level fitness and pi scores
+into target level estimates.
 """
+
 import re
 import os
-import argparse
+import logging
 import pandas as pd
 import numpy as np
 from scipy.stats import rankdata
@@ -26,51 +13,25 @@ from collections import defaultdict
 import scipy.sparse as sps
 
 
-def magnitude_construct_weights(fpr, n_probes_per_construct=2):
-    """ Use product of magnitude from zero as the weight """
-
-    df = fpr.copy()
-
-    # just like before have the option to zero out the worst performing probe for a given gene
-    df.loc[:,'ranks_adj'] = n_probes_per_target + 1 - df.loc[:,'ranks']
-
-    # zero out the negatives
-    df['rank_adjusted'][ df['rank_adjusted'] < 0 ] = 0
-    df['fitness'      ][ df['rank_adjusted'] < 0 ] = 0
-
-    construct_weights = np.outer(df['fitness'], df['fitness'])
-
-    return construct_weights
-
-def magnitude_target_fitness(fpr, n_probes_per_target):
-    """ Use the product of magnitude from zero as the weight """
-
-    # make copy of input dataframe
-    df = fpr.copy()
-
-    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
-    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
-    df['rank_adjusted'] = (n_probes_per_target + 1 - df['rank'])
-
-    # zero out negatives
-    df['rank_adjusted'][ df['rank_adjusted'] < 0 ] = 0
-    df['fitness'][ df['rank_adjusted'] < 0 ] = 0
-
-    # square the ranks to get weights
-    df['weighted_fitness'] = df['fitness']**2
-
-    # multiply the probe fitness by the assigned rank weights
-    df['weighted_fitness'] = df['fitness'] * df['rank_weight']
-
-    # get target weighted fitness as the weighted mean of probe fitnesses
-    target_fitness = df.groupby('target_id')['weighted_fitness'].sum() / df.groupby('target_id')['fitness'].sum()
-
-    return target_fitness
 
 def rank_probes(fp, targets, null_target_id = "NonTargetingControl"):
-    """ Description
+    """ Rank probes by target according to fitness effects.
 
-    Speed of this could be improved
+        Better probes are assumed to produce greater effect sizes 
+        (either positive or negative) in fitness. However, for just the
+        null target (scramble) the opposite is true: the best probes produce
+        the smallest deviation from zero fitness.
+
+        Args:
+            fp (np.array): probe level fitness estimates
+            targets (np.array): target names corresponding to probes
+            null_target_id (str): name of the null/scramble target (gene)
+
+        Returns:
+            ranks (np.array): an array of integers corresponding to within 
+                target based fitness ranks most likely 1.0, 2.0, 3.0, ... with 1 
+                being the best 
+
     """
     # get unique targets
     uniq_targets = np.unique(targets)
@@ -80,9 +41,11 @@ def rank_probes(fp, targets, null_target_id = "NonTargetingControl"):
     for t in uniq_targets:
         ix = np.where(targets == t)[0]
         if t == null_target_id:
-            r = rankdata( abs( fp[ix]) ) # for null, best probes are closest to zero
+            # for null, best probes are closest to zero
+            r = rankdata( abs( fp[ix]) ) 
         else:
-            r = rankdata( - abs( fp[ix]) ) # for all other genes, best probes deviate the most from zero
+            # for all other genes, best probes deviate the most from zero
+            r = rankdata( - abs( fp[ix]) ) 
         # append ranks and index to growing list
         for i in range(len(r)):
             ranks.append((ix[i], r[i]))
@@ -95,6 +58,23 @@ def rank_probes(fp, targets, null_target_id = "NonTargetingControl"):
     return ranks
   
 def mean_target_fitness(fp, ranks, targets, n_probes_per_target=2):
+    """ Compute the weighted fitness per target, collapsing the probe based
+        fitnesses according to the mean of the best probes
+    
+    Args: 
+        fp (np.array): probe level fitness estimates
+        ranks (np.array): an array of integers corresponding to within 
+            target based fitness ranks most likely 1.0, 2.0, 3.0, ... with 1 
+            being the best 
+        targets (np.array): target names corresponding to probes
+        n_probes_per_target (int): the desired number of probes to use per 
+            target in calculating the weighted mean
+
+    Returns:
+        target_fitness (pd.dataframe): a pandas dataframe of target 
+            fitnesses weighted by rank.
+
+    """
     ranks_adj = n_probes_per_target + 1 - ranks
     # zero out negatives
     ranks_adj[ ranks_adj < 0 ] = 0
@@ -111,44 +91,67 @@ def mean_target_fitness(fp, ranks, targets, n_probes_per_target=2):
         fitness.append(target_fitness)
     # convert to numpy array
     fitness = np.array(fitness)
-    return fitness, uniq_targets
+    return fitness
 
 def mean_construct_weights(ranks, eij, n_probes_per_target=2):
     """Build the construct weight matrix given an array ranks by probe 
 
-    This computes the outer cross product of the rank array adjusting for the number of probes we want to include
-    for each target
+    Compute the mean weight for the construct array taking the best 
+    n_probes_per_target for each target.  Here the mean is taken across all 
+    accepted probes with no magnitude assigned to the rank beyond a binary
+    inclusion.
 
     Args: 
-        ranks (np.array): an array of integers corresponding to within target based fitness ranks
-                         most likely 1.0, 2.0, 3.0, ... with 1 being the best 
+        ranks (np.array): an array of integers corresponding to within 
+            target based fitness ranks most likely 1.0, 2.0, 3.0, ... with 1 
+            being the best
+        eij (sp.sparse): probe level pi scores
+        n_probes_per_target (int): the desired number of probes to use per 
+                target in calculating the weighted mean
     Returns:
-        construct_weights (ndarray): a NxN array of rank based weights for each probe pair.
+        construct_weights (ndarray): a NxN array of rank based weights for
+            each probe pair.
 
     """
-    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
-    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
+    # inverse ranks for weighting ... 
+    # ie best probe gets a rank of n_probes_per_target, normally 2 
+    # so the best pair of probes for each target pair gets
+    # a weight of 4 or n_probes_per_target^2
     ranks_adj = n_probes_per_target + 1 - ranks
     # zero out negatives
     ranks_adj[ ranks_adj < 0 ] = 0
     # reset all the raks to 1
     ranks_adj[ ranks_adj>0 ] = 1
     nonzero = eij.nonzero()
-    construct_weights = sps.csr_matrix((ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]], (nonzero[0], nonzero[1])), shape=eij.shape)
+    construct_weights = sps.csr_matrix(
+        (
+            ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]],
+            (nonzero[0], nonzero[1])
+        ), shape=eij.shape)
     return construct_weights
 
 def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
-    """ Compute the weighted fitness per target, collapsing the probe based fitnesses according to to their ranks
+    """ Compute the weighted fitness per target, collapsing the probe based
+        fitnesses according to to their ranks
     
     Args: 
-        fpr (dataframe): an array of imputed probe base fitness values. with at least two columns 'fitness' and 'rank'
-            and a multiindex containing probe and target ids
+        fp (np.array): probe level fitness estimates
+        ranks (np.array): an array of integers corresponding to within 
+            target based fitness ranks most likely 1.0, 2.0, 3.0, ... with 1 
+            being the best 
+        targets (np.array): target names corresponding to probes
+        n_probes_per_target (int): the desired number of probes to use per 
+            target in calculating the weighted mean
+    
     Returns:
-        target_fitness (dataframe): a pandas dataframe of target fitnesses weighted by rank.
+        target_fitness (pd.dataframe): a pandas dataframe of target 
+            fitnesses weighted by rank.
 
     """
-    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
-    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
+    # inverse ranks for weighting ... 
+    # ie best probe gets a rank of n_probes_per_target, normally 2 
+    # so the best pair of probes for each target pair gets
+    # a weight of 4 or n_probes_per_target^2
     ranks_adj = n_probes_per_target + 1 - ranks
     # zero out negatives
     ranks_adj[ ranks_adj < 0 ] = 0
@@ -174,23 +177,35 @@ def ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=2):
 def ansatz_construct_weights(ranks, eij, n_probes_per_target=2):
     """Build the construct weight matrix given an array ranks by probe 
 
-    This computes the outer cross product of the rank array adjusting for the number of probes we want to include
-    for each target
+        This computes the outer cross product of the rank array adjusting for
+        the number of probes we want to include for each target
 
     Args: 
-        ranks (np.array): an array of integers corresponding to within target based fitness ranks
-                         most likely 1.0, 2.0, 3.0, ... with 1 being the best 
+        ranks (np.array): an array of integers corresponding to within 
+            target based fitness ranks most likely 1.0, 2.0, 3.0, ... with 1 
+            being the best
+        eij (sp.sparse): probe level pi scores
+        n_probes_per_target (int): the desired number of probes to use per 
+                target in calculating the weighted mean
+
     Returns:
-        construct_weights (ndarray): a NxN array of rank based weights for each probe pair.
+        construct_weights (ndarray): a NxN array of rank based weights for
+            each probe pair.
 
     """
-    # inverse ranks for weighting ... ie best probe gets a rank of n_probes_per_target, normally 2 
-    # so the best pair of probes for each target pair gets a weight of 4 or n_probes_per_target^2
+    # inverse ranks for weighting ... 
+    # ie best probe gets a rank of n_probes_per_target, normally 2 
+    # so the best pair of probes for each target pair gets
+    # a weight of 4 or n_probes_per_target^2
     ranks_adj = n_probes_per_target + 1 - ranks
     # zero out negatives
     ranks_adj[ ranks_adj < 0 ] = 0
     nonzero = eij.nonzero()
-    construct_weights = sps.csr_matrix((ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]], (nonzero[0], nonzero[1])), shape=eij.shape)
+    construct_weights = sps.csr_matrix(
+        (
+            ranks_adj[nonzero[0]] * ranks_adj[nonzero[1]],
+            (nonzero[0], nonzero[1])
+        ), shape=eij.shape)
     return construct_weights
 
 def weight_by_target( eij, fp, w0, probes, targets,
@@ -200,9 +215,31 @@ def weight_by_target( eij, fp, w0, probes, targets,
     pre_computed_ranks = None,
     method = "ansatz"
     ):
-    """ Description
-    Todo: output null mean, store as attribute
+    """ Calculate weighted mean of probe fitnesses and pi scores at the 
+        target/gene level.
     
+        Args:
+            eij (sp.sparse): probe level pi scores
+            fp (np.array): probe level fitness estimates
+            w0 (sp.sparse): initial construct weights matrix
+            probes (np.array): probe names corresponding to fp/eij
+            targets (np.array): target names corresponding to probes
+            n_probes_per_target (int): the desired number of probes to use per 
+                target in calculating the weighted mean
+            epsilon (float): min value to add to weight to ensure no zero divide
+            null_target_id (str): name of the null/scramble target (gene)
+            pre_computed_ranks (np.array): An array of probe ranks to use 
+                instead of computing them. These would likely imply use of the 
+                ansatz method ranked probed for calculating the weighted mean.
+                Ranks are expected to correspond to provided fp, eij, probes,
+                and target arrays.
+            method (str): the method to use in calculating weighted mean.
+                default is ansatz or probe rankings.
+
+        Returns:
+            eijm (pd.DataFrame): pi scores by target-target pairs
+            target_fitness (pd.DataFrame): target level fitness estimates
+
     """
 
     # subtract the null probes from all the fitnesses
@@ -210,7 +247,9 @@ def weight_by_target( eij, fp, w0, probes, targets,
         # get the indicies of the null targets
         ix = np.where( targets == null_target_id)
         if len(ix)==0:
-            raise AssertionError('No null targets corresponding to "{}" were found'.format(null_target_id))
+            raise AssertionError(
+                'No null targets corresponding to "{}" were found'.format(
+                    null_target_id))
         # get mean of the null probe fitnesses
         null_mean = fp[ix].mean()
         if np.isnan(null_mean):
@@ -227,16 +266,20 @@ def weight_by_target( eij, fp, w0, probes, targets,
 
     if method=="mean":
         # compute the weighted target fitness
-        target_fitness_values, target_fitness_labels = mean_target_fitness(fp, ranks, targets, n_probes_per_target=n_probes_per_target)
+        target_fitness_values, target_fitness_labels = mean_target_fitness(
+            fp, ranks, targets, n_probes_per_target=n_probes_per_target)
 
         # get construct weights
-        construct_weights = mean_construct_weights(ranks, eij, n_probes_per_target=n_probes_per_target)
+        construct_weights = mean_construct_weights(
+            ranks, eij, n_probes_per_target=n_probes_per_target)
     else:
         # compute the weighted target fitness
-        target_fitness_values, target_fitness_labels = ansatz_target_fitness(fp, ranks, targets, n_probes_per_target=n_probes_per_target)
+        target_fitness_values, target_fitness_labels = ansatz_target_fitness(
+            fp, ranks, targets, n_probes_per_target=n_probes_per_target)
 
         # get construct weights
-        construct_weights = ansatz_construct_weights(ranks, eij, n_probes_per_target=n_probes_per_target)
+        construct_weights = ansatz_construct_weights(
+            ranks, eij, n_probes_per_target=n_probes_per_target)
 
     # make boolean mask for expressed constructs
     expressed = w0>0
@@ -274,10 +317,9 @@ def weight_by_target( eij, fp, w0, probes, targets,
     # we currently expect a dataframe output, so make that for now
     eijm = pd.DataFrame(pi, index=['pi']).transpose()
     eijm.index.names = ['target_id_1', 'target_id_2']
-    #eijm = eijm.reset_index().pivot(index='target_id_1', columns='target_id_2', values = 'pi')
 
-    #target_fitness = pd.DataFrame(list(zip(target_fitness_labels, target_fitness_values)))
-    target_fitness = pd.DataFrame(target_fitness_values, index=target_fitness_labels)
+    target_fitness = pd.DataFrame(target_fitness_values,
+        index=target_fitness_labels)
 
 
     return eijm, target_fitness

@@ -1,26 +1,16 @@
 """
-Docstring
-
-
-This is a rewrite of the irls function from Roman/Amanda's CTG pacakge.
-Ported to pure python.
-
-Todo:
-    method documentation
-    verify biweight
-    unit tests
-    change ag to float but keep options for number of standard devaitions away
-
-    
-
+Functions to impute probe level fitnesses and pi scores from double knockout 
+fitnesses.
 """
 
 import os
-import argparse
-import pandas as pd
-import numpy as np
 import logging
+import numpy as np
 import scipy.sparse as sps
+# turn off scipy sparse warnings
+from scipy.sparse import SparseEfficiencyWarning
+import warnings
+warnings.filterwarnings('ignore',category=SparseEfficiencyWarning)
 
 
 def filter_weights(w, w0):
@@ -37,6 +27,7 @@ def filter_weights(w, w0):
     
     # replace the diagonal (ie same gene on both probes ) with zero ...
     # or do not include
+    
     w.setdiag(0)
 
     # zero out previous determined bad constructs
@@ -46,6 +37,7 @@ def filter_weights(w, w0):
 def biweight(eij, ag=2., expressed=None):
     """ Normalize weights according to a modified Tukey's Biweight
     see: http://mathworld.wolfram.com/TukeysBiweight.html
+
     Args:
         eij (scipy sparse matrix): a matrix of residuals from a fit
             of single probe fitnesses 
@@ -59,7 +51,7 @@ def biweight(eij, ag=2., expressed=None):
 
     nonzero = eij.nonzero()
     l = nonzero[0].shape[0]
-    ones = sps.csr_matrix((np.ones(l), nonzero), shape=eij.shape) 
+    ones = sps.csr_matrix((np.ones(l), nonzero), shape=eij.shape)
 
     if expressed is None:
         # create a mask of all true
@@ -92,13 +84,12 @@ def construct_system_ab(fc, w, err=1e-6):
     """
     n = fc.shape[0]
     # initialize the imputed weights matrix
-    A = w.copy()
+    A = w.copy()#.tolil()
 
     # replace diagnol with total number of constructs used for the given probe,
     # plus some small error term
     x = np.asarray(w.sum(axis=1)+err).reshape(-1)
-    A.setdiag(np.asarray(w.sum(axis=1)+err).reshape(-1))
-
+    A.setdiag(x)
     # get new construct fitnesses to fit against initialize a vector with sum of
     # all construct fitnesses for every probe if the assumption of a normally
     # distributed genetic interactions about zero is met  this will be 0 or
@@ -108,37 +99,32 @@ def construct_system_ab(fc, w, err=1e-6):
     return A, b
 
 def solve(A, b, exact=False):
-    """ 
-    Solve a system of equations corresponding to A*x=b.
+    """ Solve a system of equations corresponding to A*x=b.
 
-    An underlying assumption of the dual knockout screens is that
-    interations are rare. As such, the fitness of most double constructs will
-    equal the multiplicative product of the single probe fitnesses. In log space
-    this is an addative, fc = fa+fb. If a probe if measured against n other
-    probes targeting different genetic elements then the sum of these constructs
-    is expected to be 
-    \sum_{i}^n fc_i = fc_1 + fc_2 + ... + fc_n = n*fa+fb_1+fb_2+fb3 
+        An underlying assumption of the dual knockout screens is that
+        interations are rare. As such, the fitness of most double constructs 
+        will equal the multiplicative product of the single probe fitnesses. 
+        In log space this is an addative, fc = fa+fb. If a probe if measured 
+        against n other probes targeting different genetic elements then the 
+        sum of these constructs is expected to be 
+        \sum_{i}^n fc_i = fc_1 + fc_2 + ... + fc_n = n*fa+fb_1+fb_2+fb3 
 
-    As such the A matrix is constructed as integer weights and b is the sum of
-    construct fitnesses for a given probe.
-    ex:
-    A = [ 3, 1, 1
-          1, 3, 1,
-          1, 1, 3]
-    b = [ 
-        ]
+        As such the A matrix is constructed as integer weights and b is the sum
+        of construct fitnesses for a given probe.
+        ex:
+        A = [ 3, 1, 1
+              1, 3, 1,
+              1, 1, 3]
+        b = [ 
+            ]
 
-    Args:
-        A (scipy sparse matrix): probe by probe matrix of weights 
-        b (numpy vector): sum of constructs fitness by probe
-        exact (bool): True if solving the system directly (square desgins),
-            False otherwise, for example in multiple conditions
-    Returns:
-        x (numpy vector): vector of inputed probe fitness
-
-
-    TODO: should we be using the fc matrix to get the nonzero instead of
-    expressed? see issue #5
+        Args:
+            A (scipy sparse matrix): probe by probe matrix of weights 
+            b (numpy vector): sum of constructs fitness by probe
+            exact (bool): True if solving the system directly (square desgins),
+                False otherwise, for example in multiple conditions
+        Returns:
+            x (numpy vector): vector of inputed probe fitness
     """
     # convert to csr for computation
     #A = A.tocsr()
@@ -163,20 +149,20 @@ def solve(A, b, exact=False):
 def calc_eij(fp, fc, expressed=None):
     """ Calculate the residuals of a inputed probe based fitnesses.
 
-    fij (matrix): A symmetric matrix of floats corresponding to the expected
-    fitnesses for each contruct ie (fp+fp' in log space). Or in this case 
-    f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
+        fij (matrix): A symmetric matrix of floats corresponding to the expected
+        fitnesses for each contruct ie (fp+fp' in log space). Or in this case 
+        f[i][j] = fp[i] + fp[j] to minimize fc = fij + pi.
 
-    Args: 
-        fp (numpy array): vector of inputed probe based fitnesses
-        fc (scipy sparse matrix): probe by probe matrix of measured construct
-            fitnesses
-        expressed (scipy sparse matrix): boolean matrix mask indicating weather
-            to include a construct in the calculation
-    Returns:
-        eij (scipy sparse matrix): the residuals of the expected constructs
-        fitnesses bases on addative probe fitness from observed in the construct
-        fitness matrix (fc)
+        Args: 
+            fp (numpy array): vector of inputed probe based fitnesses
+            fc (scipy sparse matrix): probe by probe matrix of measured 
+                construct fitnesses
+            expressed (scipy sparse matrix): boolean matrix mask indicating 
+                weather to include a construct in the calculation
+        Returns:
+            eij (scipy sparse matrix): the residuals of the expected constructs
+                fitnesses bases on addative probe fitness from observed in the 
+                construct fitness matrix (fc)
     """
     # get indicies on nonzero elements
     if expressed is not None:
@@ -195,33 +181,26 @@ def calc_eij(fp, fc, expressed=None):
 
     return eij
 
-
-
-
-
-
-
-
-def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
-    """ The iterative least squares fitting function of single gene fitnesses
+def irls(fc, w0, ag=2, tol=1e-3, maxiter=50):
+    """ Iterative least squares fitting function of single gene fitnesses
         
         Args:
             fc (matrix): A NxN matrix of observed fitnesses for each construct.
             w0 (matrix): A NxN matrix of boolean weights
             ag (float): Number of standard devs to use in biweight
-            tol (float): The error tolerance threshold which stops the iteration.
+            tol (float): The error tolerance threshold which stops the
+                iteration.
             maxiter (int): max number of iteration to perform
         Return:
-            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
+            guide_edit_distance (int) - number of one-nucleotide edits needed 
+                to transform the guide string into reference
     """ 
     # subset the constuct fitness matrix to the upper triangle (its symmetric)
     # filter out bad constructs, based on w0 mask
     expressed = sps.triu(w0).astype(np.bool)
-   
-    # write status header
-    # if verbose:
-    #     print("\t".join(["Iter","Relative Error"]))
-    
+
+    # convert w0 to lil
+    w0 = w0.tolil()
     # init counter, relative error 
     counter = 0
     relative_error = 1
@@ -247,8 +226,11 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
 
         if counter > 0:
             # calculate relative error to the last iteration
-            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
-            logging.debug("Iteration: {}\t Relative Error: {:.6f}".format(counter,relative_error))
+            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / 
+                np.max([1, sum(fp_old**2)]))
+            logging.debug("{} {}\t {} {:.6f}".format(
+                "Iteration: ",counter, "Relative Error: ", relative_error))
+
 
         # iterate the counter
         counter += 1
@@ -259,17 +241,19 @@ def irls(fc, w0, ag=2, tol=1e-3, maxiter=50, all = True):
 
 
 
-def irls_multi_condition(fc, w0, ag=2., tol=1e-3, maxiter=50, all = True):
+def irls_multi_condition(fc, w0, ag=2., tol=1e-3, maxiter=50):
     """ The iterative least squares fitting function of single gene fitnesses
         
         Args:
             fc (matrix): A NxN matrix of observed fitnesses for each construct.
             w0 (matrix): A NxN matrix of boolean weights
             ag (float): Number of standard devs to use in biweight
-            tol (float): The error tolerance threshold which stops the iteration.
+            tol (float): The error tolerance threshold which stops the 
+                iteration.
             maxiter (int): max number of iteration to perform
         Return:
-            guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
+            guide_edit_distance (int) - number of one-nucleotide edits needed 
+                to transform the guide string into reference
     """
 
     # init holders for cross condition system of equations
@@ -320,8 +304,10 @@ def irls_multi_condition(fc, w0, ag=2., tol=1e-3, maxiter=50, all = True):
 
         if counter > 0:
             # calculate relative error to the last iteration
-            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / np.max([1, sum(fp_old**2)]))
-            logging.debug("Iteration: {}\t Relative Error: {:.6f}".format(counter,relative_error))
+            relative_error = np.sqrt( np.sum((fp - fp_old)**2) / 
+                np.max([1, sum(fp_old**2)]))
+            logging.debug("{} {}\t {} {:.6f}".format(
+                "Iteration: ",counter, "Relative Error: ", relative_error))
 
         # iterate the counter
         counter += 1

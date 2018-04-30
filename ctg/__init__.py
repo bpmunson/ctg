@@ -94,6 +94,12 @@ def aggregate_parser(subparser):
     """
     aggregate_subparser = subparser.add_parser('aggregate', help="Aggregate counts files.")
 
+    aggregate_subparser_rt=aggregate_subparser.add_argument_group(title='Optional run time arguments',description='')
+    aggregate_subparser_rt.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output.")
+    aggregate_subparser_rt.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
+    aggregate_subparser_rt.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
+    aggregate_subparser_rt.add_argument("--threads", action="store", required=False, default=1, help='Number of threads to use.')
+
     # required arguments
     # fastqs 
     aggregate_subparser_req=aggregate_subparser.add_argument_group(title='Required arguments',description='')
@@ -103,8 +109,9 @@ def aggregate_parser(subparser):
     aggregate_subparser_req.add_argument("--counts_files", action="store", required=True, nargs="*", help='Space separated list of counts files created by ctg count.')
 
     # optional Arguments
-    aggregate_subparser.add_argument("--names", action="store", default=None, nargs="+", help="Space separated list of names to use as column headers in output.")
-    aggregate_subparser.add_argument("--output", action="store", default="/dev/stdout", help="Output path")
+    aggregate_subparser_opt=aggregate_subparser.add_argument_group(title='Optional input arguments',description='')
+    aggregate_subparser_opt.add_argument("--names", action="store", default=None, nargs="+", help="Space separated list of names to use as column headers in output.")
+    aggregate_subparser_opt.add_argument("--output", action="store", default="/dev/stdout", help="Output path")
 
 def score_parser(subparser):
     score_parser = subparser.add_parser('score', help="Calculate genetic interaction scores from construct counts.")

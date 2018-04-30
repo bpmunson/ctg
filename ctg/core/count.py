@@ -1,16 +1,13 @@
-
 """
-Docstring
+Functions to count constructs from fastq files.
 """
 
 import os
 import pysam
 import logging
-from collections import defaultdict
-
-import pandas as pd
+#import pandas as pd
 import numpy as np
-
+from collections import defaultdict
 from ctg.core.utils import mate_pair_bam_reader
 from ctg.core.utils import get_fragment_count
 
@@ -33,6 +30,7 @@ def get_probe_divider():
 
 def read_1_callback(read):
     """ Function to determine if read is the first in a pair
+    
         Args:
             pysam AlignedSegment
         Return:
@@ -59,8 +57,7 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
         ld (dict): dictionary wtih construct_ids as keys and dictionary values
             dictionary values are of the form: column_id: row_value
     Raises:
-        RunTimeError if duplicate constructs were seen in library 
-
+        RuntimeError if duplicate constructs were seen in library 
     """
     ld = dict()
     options = dict()
@@ -85,9 +82,10 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
             construct_id = line[0]
             vals = {header_line[i]:line[i] for i in range(1,len(line))}
             if construct_id in ld:
-                raise RuntimeError("{} {}".format(
+                logging.error("{} {}".format(
                     "Duplicate construct ids found in library defintion:",
                     construct_id))
+                raise RuntimeError()
             ld[construct_id] = vals
     return ld
 
@@ -199,15 +197,19 @@ def hamming_distance(a, expected, allow_iupac=True):
             "G":"G",
             "T":"T"}
 
+
     c = 0
     for i in range(len(a)):
-        if a[i] in translation[expected[i]]:
-            continue
-        else:
-            c+=1
+        try:
+            if a[i] in translation[expected[i]]:
+                continue
+            else:
+                c+=1
+        except IndexError:
+            c+=len(a)-i
     return c
 
-def extract_subsequence(read, start = 30, end = 50, count_ed=True):
+def extract_subsequence(read, start = 30, end = 50, count_ed=False):
     """ Verify alignment against guide was good enough
         
         Args:
@@ -274,7 +276,8 @@ def extract_subsequence(read, start = 30, end = 50, count_ed=True):
         return subseq, guide_edit_distance
     return subseq
 
-def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, barcode_start=None, flag=None):
+def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None,
+    barcode_start=None, flag=None):
     """ Add tags to reads
         Count barcode edit distance
 
@@ -292,9 +295,10 @@ def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None, b
         #ged, seq = get_guide_edit_distance(read, start = guide_start, length=guide_length, extract=True)
         guide, ged = extract_subsequence(read, start = guide_start, end = guide_start+guide_length, count_ed=True)
     if expected_barcode:
-        barcode = extract_subsequence(read, start = barcode_start, end = barcode_start + len(expected_barcode))
+        barcode = extract_subsequence(read, start = barcode_start, end = barcode_start + len(expected_barcode), count_ed=False)
         if barcode is not None:
-            bed = levenshtein_distance(barcode, expected_barcode)
+            #bed = levenshtein_distance(barcode, expected_barcode)
+            bed = hamming_distance(barcode, expected_barcode)
 
     # add tags to read
     # set guide edit distance
@@ -315,7 +319,7 @@ def build_guide_reference(library,
     g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2,
     reference_fasta=None, tmp_dir = "./"):
     """
-    Build expected guide sequences for aligner reference
+    Build expected guide sequences for aligner reference.
 
     Args: 
         library (dict): dictionary representation of the dual CRISPR guides 
@@ -333,7 +337,7 @@ def build_guide_reference(library,
     Returns:
         None
     Raises:
-        RunTimeError if multiple sequences are observed for the same probe id
+        RuntimeError if multiple sequences are observed for the same probe id
     """
 
     # read in library if a string is passed
@@ -393,7 +397,7 @@ def count_good_constructs(bam_file_path,
     guide_edit_threshold = 2,
     sample = "Count",
     output_counts_path = "/dev/stdout"):
-    """ Count construct pairs.
+    """ Count construct pairs in aligned bam file.
 
     Args:
         bam_file_path (str): the bam file path containing the reads to count

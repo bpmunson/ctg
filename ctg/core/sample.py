@@ -1,15 +1,7 @@
-# """
-# Docstring
-
-
-# This is a rewrite of the iterative pi score subsampling from Roman/Amanda's CTG pacakge.
-# Ported to pure python.
-
-# Todo:
-#     method documentation
-#     unit tests
-
-# """
+"""
+Functions to compute target level fitness estimates and pi scores by subsampling
+the double knockout fitness space estimates.
+"""
 
 import re
 import os
@@ -17,44 +9,50 @@ import argparse
 import pandas as pd
 import numpy as np
 import logging
-
-
-
 import ctg.core.irls as irls
 import ctg.core.weight as weight
-
 from statsmodels.distributions.empirical_distribution import ECDF
 import scipy.sparse as sps
 
+def summarize(pi_iter, fitness_iter, err=1e-6):
+    """ Collapse the iteration level fitness estimates and pi scores into 
+        a final results.
 
-def _build_target_array(probes, names):
-    """ Description
+    Args:
+        pi_iter (pd.DataFrame): Target level pi-scores for each iteration
+        fitness_iter (pd.DataFrame): Target level fitness estimates for 
+            each iteration
+        err (float): small error to ensure no zero divide
+
+    Returns:
+        x (pd.DataFrame): Dataframe containging result
+
+    TODO:
+        roman outputs the fitness as the weighted target fitness on the
+        whole space, not the iteration mean
+        ie
+            self.run_pi_score_calculation
+            self.run_weighint()
+            self.target_fitnesses
+
     """
-
-    # get a list of all probes to targets from names datafame
-    a = names[['probe_a_id','target_a_id']]
-    b = names[['probe_b_id','target_b_id']]
-    a.columns = ['probe_id','target_id']
-    b.columns = ['probe_id','target_id']
-    c = pd.concat([a,b],axis=0).drop_duplicates()
-
-    # merge together and take target ids
-    targets = np.array(pd.merge(pd.DataFrame(probes,columns=['probe_id']), c)['target_id'])
-    return targets
-
-def summarize(pi_iter, fitness_iter):
-
     
     fitness_mean = fitness_iter.mean(axis=1).to_frame()
     pi_mean = pi_iter.mean(axis=1)
     pi_iter_null = pi_iter.subtract(pi_mean, axis=0)
 
-    enull = ECDF( np.concatenate((pi_iter_null.values.flatten(), - pi_iter_null.values.flatten())) )
+    enull = ECDF( np.concatenate((  pi_iter_null.values.flatten(), 
+                                    - pi_iter_null.values.flatten())) )
     emean = ECDF( pi_mean )
 
     fdr_left = np.minimum(1, enull(pi_mean)/emean(pi_mean))
-    fdr_right = np.minimum(1, enull(-pi_mean)/(1-emean(pi_mean)))
-    fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)), index=pi_mean.index, columns=['fdr_left','fdr_right'])
+    # calculate FDR right with a small error for non zero divide
+    a = enull(-pi_mean)
+    b = 1-emean(pi_mean)+err
+    fdr_right = np.minimum(1, a/b)
+    fdr = pd.DataFrame(list(zip(fdr_left, fdr_right)),
+        index=pi_mean.index,
+        columns=['fdr_left','fdr_right'])
 
     # get per pair sd
     sd = pi_iter.std(axis=1)
@@ -71,14 +69,28 @@ def summarize(pi_iter, fitness_iter):
     x = x.reset_index()
 
     # merge in gene fitnesses
-    x = pd.merge(x, fitness_mean, left_on='target_id_1', right_index=True, how="left")
-    x = pd.merge(x, fitness_mean, left_on='target_id_2', right_index=True, how="left")
-    x.columns = ['geneA','geneB','pi_mean', 'fdr_left', 'fdr_right', 'sd', 'z', 'pp', 'fA','fB']
+    x = pd.merge(x, fitness_mean,
+        left_on='target_id_1', right_index=True, how="left")
+    x = pd.merge(x, fitness_mean, 
+        left_on='target_id_2', right_index=True, how="left")
+    x.columns = ['geneA','geneB','pi_mean', 'fdr_left',
+                 'fdr_right', 'sd', 'z', 'pp', 'fA','fB']
 
     return x
 
-def subsample(fc, pp, sdfc, seed=None, testing = False):
-    """ Subsample the construct fitness matrix according to posterior probabilities
+def subsample(fc, pp, sdfc, seed=None, use_r_random=False):
+    """
+    Subsample the construct fitness matrix according to the posterior
+    probabilities.
+
+    Args: 
+        fc (matrix): construct fitnesses
+        pp (matrix): posterior probabilities 
+        sdfc (matrix): the standard deviation of construct fitnesses 
+        seed (int): random seed to use
+
+    Returns:
+        fc_1 (matrix): subsampled construct fitnesses 
     """
     fc_0 = sps.triu(fc)
     sdfc_0 = sps.triu(sdfc)
@@ -95,6 +107,7 @@ def subsample(fc, pp, sdfc, seed=None, testing = False):
     fc_0 = fc_0 + noise
 
     # decide whether to use base on posterior probability 
+    # TODO: why randomly draw, should we set a confidence threshold
     if seed:
         np.random.seed(seed)
 
@@ -119,8 +132,7 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     null_target_id="NonTargetingControl",
     niter=2,
     testing=False,
-    use_full_dataset_for_ranking = True,
-    all = True
+    use_full_dataset_for_ranking = True
     ):
     """
     Calculate the pi scores by iterative fitting
@@ -130,17 +142,34 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         pp (matrix): posterior probabilities 
         sdfc (matrix): the standard deviation of construct fitnesses 
         w0 (matrix): boolean matrix of good constructs
+        probes (np.array): probe names corresponding to fp/eij
+        targets (np.array): target names corresponding to probes
+        ag (int): Number of standard deviation to use in Tukey biweight
+            normalization.
+        tol (float): The error tolerance threshold which stops the iteration.
+        maxiter (int): max number of iteration to perform
+        n_probes_per_target (int): the desired number of probes to use 
+            per target in calculating the weighted mean
+        epsilon (float): min value to add to weight to ensure no zero divide
+        null_target_id (str): name of the null/scramble target (gene)
         niter (int): number of iterations to perform
+        testing (bool): True if testing, False otherwise
+        use_full_dataset_for_ranking (bool): True if rankings should be 
+            calculated on the full construct space instead of sampled space.
+            False otherwise.
 
-
+    Returns:
+        pi_iter (pd.DataFrame): Target level pi-scores for each iteration
+        fitness_iter (pd.DataFrame): Target level fitness estimates for 
+            each iteration
     """
     if use_full_dataset_for_ranking:
-        # if we want to use the full dataset for probe rankings, calculate it now
-        # get initial fit of probe fitnesses based on construct fitnesses
+        # if we want to use the full dataset for probe rankings, calculate it 
+        # now get initial fit of probe fitnesses based on construct fitnesses
         fp_0, eij_0 = irls.irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
 
-        # if we want to use the full dataset for probe rankings, calculate it now
-        # get initial fit of probe fitnesses based on construct fitnesses
+        # if we want to use the full dataset for probe rankings, calculate it 
+        # now get initial fit of probe fitnesses based on construct fitnesses
         if null_target_id:
             # get the indicies of the null targets
             ix = np.where( targets == null_target_id)
@@ -150,7 +179,8 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets,
+            null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None
@@ -170,17 +200,18 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
         	seed = None
 
         # get subsample 
-        fc_1 = subsample(fc, pp, sdfc, seed=seed, testing = testing)
+        fc_1 = subsample(fc, pp, sdfc, seed=seed)
 
         # get unweighted estimates using subsampled construct fitnesses
-        fp, eij = irls.irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter, all=all)
+        fp, eij = irls.irls(fc_1, w0, ag=ag, tol=tol, maxiter=maxiter)
            
         # get weighted pi scores and target fitness 
-        pi_scores, target_fitness = weight.weight_by_target(eij, fp, w0, probes, targets,
-                                                    n_probes_per_target=n_probes_per_target,
-                                                    null_target_id = null_target_id,
-                                                    pre_computed_ranks = ranks
-                                                    )
+        pi_scores, target_fitness = weight.weight_by_target(
+            eij, fp, w0, probes, targets,
+            n_probes_per_target=n_probes_per_target,
+            null_target_id = null_target_id,
+            pre_computed_ranks = ranks
+            )
 
         # add column labels corresponding to subsample
         pi_scores.columns = [counter]
@@ -207,23 +238,46 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
     niter=2,
     testing=False,
     use_full_dataset_for_ranking = True,
-    all = True
     ):
-
-
-
     """
-    Calculate the pi scores by iterative fitting
+    Calculate the pi scores by iterative fitting for multiple conditions 
+    simultaneously.
+
+    Args: 
+        fcs (matrix): construct fitnesses across conditions
+        pps (matrix): posterior probabilities across conditons 
+        sdfcs (matrix): the standard deviation of construct fitnesses across
+            conditons
+        w0s (matrix): boolean matrix of good constructs across conditions
+        probes (np.array): probe names corresponding to fp/eij
+        targets (np.array): target names corresponding to probes
+        ag (int): Number of standard deviation to use in Tukey biweight
+            normalization.
+        tol (float): The error tolerance threshold which stops the iteration.
+        maxiter (int): max number of iteration to perform
+        n_probes_per_target (int): the desired number of probes to use 
+            per target in calculating the weighted mean
+        epsilon (float): min value to add to weight to ensure no zero divide
+        null_target_id (str): name of the null/scramble target (gene)
+        niter (int): number of iterations to perform
+        testing (bool): True if testing, False otherwise
+        use_full_dataset_for_ranking (bool): True if rankings should be 
+            calculated on the full construct space instead of sampled space.
+            False otherwise.
+
+    Returns:
+        pi_iter (pd.DataFrame): Target level pi-scores for each iteration
+        fitness_iter (pd.DataFrame): Target level fitness estimates for 
+            each iteration
 
     """
 
     if use_full_dataset_for_ranking:
-        # if we want to use the full dataset for probe rankings, calculate it now
-        # get initial fit of probe fitnesses based on construct fitnesses
-        fp_0,_ = irls_multi_condition(fcs, w0s, ag=ag, tol=tol, maxiter=maxiter)
+        # if we want to use the full dataset for probe rankings, calculate it
+        # now get initial fit of probe fitnesses based on construct fitnesses
+        fp_0,_ = irls_multi_condition(fcs, w0s,
+            ag=ag, tol=tol, maxiter=maxiter)
 
-        # if we want to use the full dataset for probe rankings, calculate it now
-        # get initial fit of probe fitnesses based on construct fitnesses
         if null_target_id:
             # get the indicies of the null targets
             ix = np.where( targets == null_target_id)
@@ -233,7 +287,8 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
             fp_0 = fp_0 - null_mean
 
         # rank the probes 
-        ranks = weight.rank_probes(fp_0, targets, null_target_id = null_target_id)
+        ranks = weight.rank_probes(fp_0, targets,
+            null_target_id = null_target_id)
     else:
         # if we don't want to use it then simply set the ranking to None
         ranks = None
@@ -254,22 +309,25 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
         fc_1s = []
         for i in range(len(fcs)):
             # get subsample 
-            fc_1 = subsample(fcs[i], pps[i], sdfcs[i], seed=seed, testing = testing)
+            fc_1 = subsample(fcs[i], pps[i], sdfcs[i],
+                seed=seed)
             fc_1s.append(fc_1)
 
 
         # get unweighted estimates using subsampled construct fitnesses
-        fp, eijs = irls_multi_condition(fc_1s, w0s, ag=ag, tol=tol, maxiter=maxiter, all=all)
+        fp, eijs = irls_multi_condition(fc_1s, w0s,
+            ag=ag, tol=tol, maxiter=maxiter)
 
         
         for i in range(len(fcs)):
 
             # get weighted pi scores and target fitness 
-            pi_scores, target_fitness = weight_by_target(eijs[i], fp, w0s[i], probes, targets,
-                                                        n_probes_per_target=n_probes_per_target,
-                                                        null_target_id = null_target_id,
-                                                        pre_computed_ranks = ranks
-                                                        )
+            pi_scores, target_fitness = weight_by_target(
+                eijs[i], fp, w0s[i], probes, targets,
+                n_probes_per_target=n_probes_per_target,
+                null_target_id = null_target_id,
+                pre_computed_ranks = ranks
+                )
 
             # add column labels corresponding to subsample
             pi_scores.columns = [counter]
@@ -280,8 +338,10 @@ def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
                 pi_iter[i] = pi_scores.copy()
                 fitness_iter[i] = target_fitness.copy()
             else:
-                pi_iter[i] = pd.concat([pi_iter[i], pi_scores], axis=1)
-                fitness_iter[i] = pd.concat([fitness_iter[i], target_fitness], axis=1)
+                pi_iter[i] = pd.concat([pi_iter[i], pi_scores],
+                    axis=1)
+                fitness_iter[i] = pd.concat([fitness_iter[i], target_fitness],
+                    axis=1)
 
 
     # return results of the sample
