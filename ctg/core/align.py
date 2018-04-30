@@ -1,6 +1,7 @@
 """
-Wrapper for bowtie2 functions
+Wrapper for bowtie2 functions.
 """
+
 import os
 import subprocess
 import logging
@@ -139,11 +140,9 @@ def bowtie2_align(fastq, bt2_index_base, *args,
     # merge call and execute    
     call = " ".join(call)
     logging.info("Running Bowtie2 Alignment: {}".format(call))
-    subprocess.check_output(call, shell=True)
+    ret_code = subprocess.call(call, shell=True)
 
-    return 0
-
-
+    return ret_code
 
 def merge_fixmate(r1_bam, r2_bam, out_bam, tmp="./sort"):
     """ 

@@ -6,10 +6,10 @@ from numpy.matlib import repmat
 import pandas as pd
 from scipy.stats import t
 
-#from ctg.core.config import config
-import config
-#import ctg.core.calculate_abundance as calculate_abundance
-import calculate_abundance
+from ctg.core.config import config
+#import config
+import ctg.core.calculate_abundance as calculate_abundance
+#import calculate_abundance
 
 
 '''
@@ -277,16 +277,20 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
     else:
         raise ValueError('Expected abundance to be of type {str, pd.DataFrame, pd.Series, None}. Received %s instead' % type(abundance_file))
 
-    names.loc[names['target_a_id'].str.contains('NonTargeting'), 'target_a_id'] = '0'
-    names.loc[names['target_b_id'].str.contains('NonTargeting'), 'target_b_id'] = '0'
+    # names.loc[names['target_a_id'].str.contains('NonTargeting'), 'target_a_id'] = '0'
+    # names.loc[names['target_b_id'].str.contains('NonTargeting'), 'target_b_id'] = '0'
 
     good = ~(names['target_a_id'] == names['target_b_id'])
     good_data = _tps.loc[good]
     good_names = names.loc[good]
 
-    cpA = good_names['probe_a_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
-    cpB = good_names['probe_b_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
+    # cpA = good_names['probe_a_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
+    # cpB = good_names['probe_b_id'].apply(lambda x: '0' + x if 'NonTargeting' in x else x)
 
+
+    cpA = good_names['probe_a_id']
+    cpB = good_names['probe_b_id']
+    
     pswitch = cpA > cpB
     phold = cpA.loc[pswitch]
     cpA.loc[pswitch] = cpB.loc[pswitch]
