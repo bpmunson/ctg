@@ -1,0 +1,16 @@
+# setting for ctg
+library = ./library_definition.CV4.csv
+
+# runtime options
+threads = 1
+
+# runtime reporting, set one of these.  debug superceeds verbose which superceeds quiet
+verbose = True
+
+# guide stuff
+guide_5p_r1 = "TATATATCTTGTGGAAAGGACGAAACACCG"
+guide_3p_r1 = "GTTTCAGAGCTATGCTGGAAACTGCATAGCAAGTTGAAATAAGGCTAGTCCGTTATCAACTTGAAAAAGTGGCACCGAGTCGGTGCTTTTTTGTACTGAGGCCACCTTAACACGCGATGATATTGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNGCTATTACGAGCGCTTGGAT"
+guide_5p_r2 = "CTTGGAGAAAAGCCTTGTTTG"
+guide_3p_r2 = "GTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGG"
+guide_edit_threshold=2
+
