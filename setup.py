@@ -43,7 +43,8 @@ setup(
 
 	},
 	keywords='genetic interaction crispr',
-	packages=['ctg'],
+	#packages=['ctg'],
+	packages=find_packages(),
 	install_requires=['numpy','scipy','pysam','statsmodels','ConfigArgParse'],
 	include_package_data=True,
 )
