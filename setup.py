@@ -10,7 +10,7 @@ with open(version_path) as handle:
 # Set up
 setup(
 	name="ctg",
-	version=main_ns['_version__'],
+	version=main_ns['__version__'],
 	description="Composition and Time-course aware Genetic interaction analysis.",
 	url="https://github.com/bpmunson/ctg",
 	author="Brenton Munson",

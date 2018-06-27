@@ -17,7 +17,7 @@ _construct_divider = "__"
 _probe_divider = "-"
 
 # get complement of a sequence
-comp = lambda x: x.translate(str.maketrans('ACGT','TGCA'))
+comp = lambda x: x.upper().translate(str.maketrans('ACGT','TGCA'))
 
 # get reverse complement of seqeunce
 rev_comp = lambda x: comp(x)[::-1]
@@ -136,6 +136,7 @@ def levenshtein_distance(observed, expected, allow_iupac=True):
             "C":"C",
             "G":"G",
             "T":"T"}
+
     # get sizes and init an array to store edit distance counts
     lx = len(observed)+1
     ly = len(expected)+1
@@ -410,9 +411,14 @@ def count_good_constructs(bam_file_path,
     Return:
         None
     """
-
     # set up logger
     log = logging.getLogger()
+
+    # check to make sure directory is writable
+    if not os.path.exists(os.dirname(output_counts_path)):
+        log.error("Directory of output path does not exists.")
+        raise RuntimeError("Bad parameters.")
+ 
 
     if bam_file_path.endswith('bam'):
         method = "rb"
@@ -420,7 +426,7 @@ def count_good_constructs(bam_file_path,
         method = "r"
 
     # open bam handle
-    bam = pysam.AlignmentFile(bam_file_path)
+    bam = pysam.AlignmentFile(bam_file_path, method)
 
     # get total read count and paired status
     log.info("Getting total read counts.")
@@ -512,9 +518,12 @@ def count_good_constructs(bam_file_path,
                 else:
                     guides_unrecoginzed += 1 
 
+    if read_count==0:
+        pct_valid = 0
+    else:
+        pct_valid = valid_constructs/read_count * 100
 
-
-    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count, valid_constructs/read_count*100 ))
+    log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(valid_constructs, read_count, pct_valid ))
     log.info("Writing outputs.")
 
     # finally write out counts and barcode paths
@@ -593,7 +602,7 @@ def count_good_constructs_and_barcodes(bam_file_path,
         method = "r"
 
     # open bam handle
-    bam = pysam.AlignmentFile(bam_file_path)
+    bam = pysam.AlignmentFile(bam_file_path, method)
 
     # get total read count and paired status
     log.info("Getting total read counts.")
