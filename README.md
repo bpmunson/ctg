@@ -6,7 +6,7 @@ The CTG package is an analysis framework for quantifying genetic interactions fr
 
 CTG requires the following software
 
-* Python 3.7
+* Python 3.6
 * [numpy](https://docs.scipy.org/doc/)
 * [scipy](https://docs.scipy.org/doc/)
 * [pandas](http://pandas.pydata.org/)
@@ -15,7 +15,7 @@ CTG requires the following software
 * [statsmodels](https://www.statsmodels.org/stable/index.html)
 * [configargparse](https://github.com/bw2/ConfigArgParse)
 
-It is recommended to install these dependencies with conda from the [Anaconda](https://conda.io/docs/user-guide/install/download.html) distrubution of Python 3.7.
+It is recommended to install these dependencies with conda from the [Anaconda](https://conda.io/docs/user-guide/install/download.html) distrubution of Python 3.6.
 
 ```bash 
 # Optionally create a new virtual environment 
@@ -31,7 +31,7 @@ conda install pandas numpy scipy pysam bowtie2 statsmodels configargparse
 
 # Install the CTG package
 ```bash
-pip install git+git://https://github.com/bpmunson/ctg
+pip install git+https://github.com/bpmunson/ctg
 ```
 
 
@@ -42,9 +42,19 @@ Analyzing genetic interactions with CTG consists of three main steps: counting c
 
 #. **Count  from Raw Sequencing Reads**.  Given fastq files containing paired end sequencing data and a library defintion specifying the expected guide sequences, tabulate counts of construct pairs by aligning the reads with bowtie2.
 
-#. **Aggregate Replicate Timecourse Counts**. After construct counts have been quantified per replicate timepoint. The counts must be aggregated into sample level.
+```bash
+ctg count --help
+```
 
-#. **Score genetic interaction**.  Once timepoint counts have been aggregated for each replicate of a sample, genetic interaction scoring is performed.  First, fitness is estimated as the growth rate in counts for each construct. Individual probe fitnesses are estimated from the dual construct fitnesses and interaction scores are calculated at the gene level.
+#. **Aggregate Replicate Timecourse Counts**. After construct counts have been quantified per replicate timepoint. The counts must be aggregated into sample level.
+```bash
+ctg aggregate --help
+```
+
+#. **Score genetic interaction**.  Once timepoint counts have been aggregated for each replicate of a sample, genetic interaction scoring is performed.  First, double knockout fitness is estimated as the growth rate in counts for each mutant. Individual gene fitnesses are estimated from the dual construct fitnesses and interaction scores are calculated at the gene level.
+```bash 
+ctg score --help
+```
 
 Getting Started
 ---------------
