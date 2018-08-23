@@ -1,4 +1,4 @@
-# Compositional and Time-Course aware Genetic interaction analysis (CTG)
+# Compositional and Time-Course aware Genetic interaction analysis (CTG) (Beta)
 
 The CTG package is an analysis framework for quantifying genetic interactions from dual knockout screens.
 
