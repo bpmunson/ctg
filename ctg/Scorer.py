@@ -12,6 +12,12 @@ import ctg.core.irls as irls
 import ctg.core.weight as weight
 import ctg.core.sample as sample
 
+
+import warnings
+warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
+
+
 class Scorer(object):
 
     def __init__(self, timepoint_counts_file, times,
@@ -23,7 +29,7 @@ class Scorer(object):
         tol = 1e-3,
         maxiter = 50,
         n_probes_per_target = 2,
-        null_target_id = "NonTargeting",
+        null_target_id = None,
         niter = 2,
         testing = False,
         output = None,
@@ -108,9 +114,10 @@ class Scorer(object):
             min_counts_threshold = self.min_counts_threshold)
 
 
-        self.fc0 = fc
         # store results
+        self.fc0 = fc
         self.names = names
+
          # get initial weights
         w0 = self._get_initial_weights(allbad)
         # build into sparse matrices
@@ -226,7 +233,7 @@ class Scorer(object):
             Wrapper function for ctg.core.sample.summarize.
         """
         logging.info("Summarizing results.")
-        results = sample.summarize(self.pi_scores_iter, self.target_fitness)
+        results = sample.summarize(self.pi_scores_iter, self.fitness_iter)
 
         # store results
         self.results = results

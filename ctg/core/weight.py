@@ -211,7 +211,7 @@ def ansatz_construct_weights(ranks, eij, n_probes_per_target=2):
 def weight_by_target( eij, fp, w0, probes, targets,
     n_probes_per_target=2,
     epsilon = 1e-6,
-    null_target_id="NonTargetingControl",
+    null_target_id=None,
     pre_computed_ranks = None,
     method = "ansatz"
     ):

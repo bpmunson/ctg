@@ -11,6 +11,9 @@ from ctg.core.config import config
 import ctg.core.calculate_abundance as calculate_abundance
 #import calculate_abundance
 
+# import warnings
+# from pandas.core.common import SettingWithCopyWarning
+# warnings.simplefilter('error', SettingWithCopyWarning)
 
 '''
 The file format below is hardcoded for Amanda's files. This can be changed by
@@ -290,7 +293,7 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
 
     cpA = good_names['probe_a_id']
     cpB = good_names['probe_b_id']
-    
+
     pswitch = cpA > cpB
     phold = cpA.loc[pswitch]
     cpA.loc[pswitch] = cpB.loc[pswitch]
@@ -312,8 +315,14 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
     gswitch = cgA > cgB
     ghold = cgA.loc[gswitch]
 
-    cgA_c = cgA.copy() # Avoid the copy warning
-    cgB_c = cgB.copy()
+
+    # cgA_c = cgA.copy() # Avoid the copy warning
+    # cgB_c = cgB.copy()
+
+    # had to remove the copy to ensure probes and target names matches
+    cgA_c = cgA
+    cgB_c = cgB 
+
 
     cgA_c.loc[gswitch] = cgB.loc[gswitch]
     cgB_c.loc[gswitch] = ghold
@@ -333,7 +342,7 @@ def _prep_input(abundance_file, counts_file, names=None, n_reps=None, t=None, co
     counts = np.array([y[i].values for i in y.columns.levels[0]]) # Assume 'reps' to be the first set of levels (see above)
     ab = np.array([ab0[i].values for i in ab0.index.levels[0]])[...,np.newaxis].transpose(0,2,1) #ditto
 
-    return ab, counts, good_names    
+    return ab, counts, good_names
 
 def _estimate_fitness(counts, times, mask): 
     '''Estimate the fitness based on counts and time.

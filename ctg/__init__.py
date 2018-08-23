@@ -22,8 +22,6 @@ def count_parser(subparser):
     count_subparser_req_read=count_subparser.add_argument_group(title='Required arguments for read structure',description='')
     count_subparser_req_read.add_argument("--guide_5p_r1", action="store", required=True, type=str, help="Expected 5' end of read 1.")
     count_subparser_req_read.add_argument("--guide_3p_r1", action="store", required=True, type=str, help="Expected 3' end of read 1.")
-    count_subparser_req_read.add_argument("--guide_5p_r2", action="store", required=True, type=str, help="Expected 5' end of read 2.")
-    count_subparser_req_read.add_argument("--guide_3p_r2", action="store", required=True, type=str, help="Expected 3' end of read 2.")
 
     count_subparser_req=count_subparser.add_argument_group(title='Required arguments',description='')
     count_subparser_req.add_argument("-l","--library", action="store", required=True, help='Library defintion file in csv format.  ')
@@ -70,7 +68,8 @@ def count_parser(subparser):
     count_subparser_opt_output.add_argument("--output_bam", action="store", default=None, help="The file to write the read alignments to." )
 
 
-
+    count_subparser_opt.add_argument("--guide_5p_r2", action="store", required=False, type=str, help="Expected 5' end of read 2.")
+    count_subparser_opt.add_argument("--guide_3p_r2", action="store", required=False, type=str, help="Expected 3' end of read 2.")
     count_subparser_opt.add_argument("-2","--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
     count_subparser_opt.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
 
@@ -79,9 +78,7 @@ def count_parser(subparser):
 def add_tags_parser(subparser):
     """ subparser for add tags
     """
-    add_tags_subparser = subparser.add_parser("add_tags", help="Add tags to a \
-        bam file")
-
+    add_tags_subparser = subparser.add_parser("add_tags", help="Add tags to a bam file")
     add_tags_subparser.add_argument("--flag", action="store", default=None, type=int, help="Bitwise flags to add to all reads.")
     add_tags_subparser.add_argument("--expected_barcode", action="store", type=str, default=None,required=False, help="Position of the guide in the read.")
     add_tags_subparser.add_argument("--barcode_start",action="store",type=int,default=None,required=False,help="Position of barcode in read")
@@ -93,7 +90,6 @@ def aggregate_parser(subparser):
     """ Add options for aggregate function
     """
     aggregate_subparser = subparser.add_parser('aggregate', help="Aggregate counts files.")
-
     aggregate_subparser_rt=aggregate_subparser.add_argument_group(title='Optional run time arguments',description='')
     aggregate_subparser_rt.add_argument("-v", "--verbose", action="store_true", default=False, help="Verbose output.")
     aggregate_subparser_rt.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
@@ -120,10 +116,6 @@ def score_parser(subparser):
     score_parser.add_argument("-q", "--quiet", action="store_true", default=False, help="Supress all warnings and info.  Supersedes --verbose.")
     score_parser.add_argument("-d", "--debug", action="store_true", default=False, help="Debug output. Supersedes --quiet.")
     score_parser.add_argument("--threads", action="store", required=False, default=1, help='Number of threads to use.')
-
-
-
-
     score_parser.add_argument("--testing", action="store_true", default=False, help="Flag for testing purposes only.")
     # fit_ac_fc
     score_parser.add_argument("--min_time_points", action="store", default=2, type=int, help="Minimum number of timepoints to use in fitness estimation.")
@@ -134,7 +126,7 @@ def score_parser(subparser):
     # weighted pi
     score_parser.add_argument("--n_probes_per_target", action="store", default=2, type=int, help="Maximum number of probes per target to use.") 
     score_parser.add_argument("--iterations", action="store", type=int, default=2, help="Number of bootstrap iterations to perform")
-    score_parser.add_argument("--null_target_id", action="store", default="0", help="Target/Gene name which corresponds to the null target")
+    score_parser.add_argument("--null_target_id", action="store", default=None, help="Target/Gene name which corresponds to the null target")
     # input
     score_parser.add_argument("-c", "--time_point_counts", action="store", default=None, required=True, help="Path to timepoint counts file.")
     score_parser.add_argument("-t", "--times", action="store", default=None, required=True, help="Comma separated list of timepoints to use.")
@@ -176,7 +168,9 @@ def counting_main(options):
     """ Main to run the counting pipeline
     """
     # build bowtie refernce from library defintion
-    counter = Counter(options.library, options.fastq1,
+    counter = Counter(
+            library = options.library, 
+            fastq1 = options.fastq1,
             input_bam = options.input_bam,
             fastq2 = options.fastq2,
             barcode = options.barcode,

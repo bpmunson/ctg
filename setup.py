@@ -33,7 +33,6 @@ setup(
 
 		# Specify the Python versions you support here. In particular, ensure
 		# that you indicate whether you support Python 2, Python 3 or both.
-		'Programming Language :: Python :: 3.5',
 		'Programming Language :: Python :: 3.6',
 	], 
 	entry_points={
@@ -45,6 +44,6 @@ setup(
 	keywords='genetic interaction crispr',
 	#packages=['ctg'],
 	packages=find_packages(),
-	install_requires=['numpy','scipy','pysam','statsmodels','ConfigArgParse'],
+	install_requires=['pandas','numpy','scipy','pysam','statsmodels','ConfigArgParse'],
 	include_package_data=True,
 )

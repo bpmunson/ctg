@@ -316,8 +316,8 @@ def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None,
     return read
 
 # main functionality
-def build_guide_reference(library,
-    g_5p_r1, g_3p_r1, g_5p_r2, g_3p_r2,
+def build_guide_reference(library=None,
+    g_5p_r1=None, g_3p_r1=None, g_5p_r2=None, g_3p_r2=None,
     reference_fasta=None, tmp_dir = "./"):
     """
     Build expected guide sequences for aligner reference.
@@ -340,10 +340,15 @@ def build_guide_reference(library,
     Raises:
         RuntimeError if multiple sequences are observed for the same probe id
     """
+    # check to see if at arguments are valid
+    if library is None:
+        raise RuntimeError('Must Supply a library defintion or file path.')
+    if g_5p_r1 is None or g_3p_r1 is None:
+        raise RuntimeError('Must specify read structrue for at least one read.')
 
     # read in library if a string is passed
     if isinstance(library,str):
-        library, options = read_library_file(library_path)
+        library = read_library_file(library)
 
     # build probe sequence dicts
     probe_a = defaultdict(list)
@@ -351,17 +356,23 @@ def build_guide_reference(library,
     for construct in library:
         probe_a[library[construct]['probe_a_id']].append(
             library[construct]['probe_a_sequence'])
-        probe_b[library[construct]['probe_b_id']].append(
-            library[construct]['probe_b_sequence'])
+
+        try:
+            probe_b[library[construct]['probe_b_id']].append(
+                library[construct]['probe_b_sequence'])
+        except KeyError:
+            continue
 
     # write out 
     # check to see if an output reference file was passed
     if reference_fasta is None:
         # if none is passed then simply write to 
-        reference_fasta = os.path.join(tmp_dir,
-                                        os.path.splitext(
-                                            os.path.basename(library_path)
-                                        )[0])
+        # reference_fasta = os.path.join(tmp_dir,
+        #                                 os.path.splitext(
+        #                                     os.path.basename(library_path)
+        #                                 )[0])
+        reference_fasta = os.path.join(tmp_dir, 'reference.fa')
+
     with open(reference_fasta, 'w') as handle:
 
         for probe_id in sorted(probe_a):
@@ -378,6 +389,7 @@ def build_guide_reference(library,
             handle.write(">{}\n".format(new_id))
             handle.write("{}\n".format(ref.upper()))             
 
+        
         for probe_id in sorted(probe_b):
             new_id = "{}_B".format(probe_id)
             seq = list(set(probe_b[probe_id]))
@@ -431,7 +443,7 @@ def count_good_constructs(bam_file_path,
     # get total read count and paired status
     log.info("Getting total read counts.")
     total_count, paired = get_fragment_count(bam_file_path)
-    log.debug("Total Frags: {}. Paired: {}".format(total_count, paired))
+    log.debug("Total Frags: {}. Is Paired: {}".format(total_count, paired))
 
     # initialize counters
     construct_counter = defaultdict(int)
@@ -443,7 +455,7 @@ def count_good_constructs(bam_file_path,
     guides_unrecoginzed = 0
     valid_constructs = 0
 
-    for read, mate in mate_pair_bam_reader(bam_file_path):
+    for read, mate in mate_pair_bam_reader(bam_file_path, paired=paired):
 
         read_count += 1
         # do some qc checks 
@@ -518,8 +530,10 @@ def count_good_constructs(bam_file_path,
                 else:
                     guides_unrecoginzed += 1 
 
+
     if read_count==0:
         pct_valid = 0
+        logging.warning("Dif ")
     else:
         pct_valid = valid_constructs/read_count * 100
 
@@ -541,7 +555,15 @@ def count_good_constructs(bam_file_path,
         if library is not None:
             # use library to add write out extra columns
             # only write constructs we are interested in
-            header = ["construct_id","target_a_id","probe_a_id","target_b_id","probe_b_id",sample]
+            if paired: 
+                header = ["construct_id",
+                            "target_a_id","probe_a_id",
+                            "target_b_id","probe_b_id",
+                            sample]
+            else:
+                header = ["construct_id",
+                            "target_a_id","probe_a_id",
+                            sample]   
             out_line = "\t".join(header)
             handle.write("{}\n".format(out_line))
             for construct in sorted(library):
@@ -607,7 +629,7 @@ def count_good_constructs_and_barcodes(bam_file_path,
     # get total read count and paired status
     log.info("Getting total read counts.")
     total_count, paired = get_fragment_count(bam_file_path)
-    log.debug("Total Frags: {}. Paired: {}".format(total_count, paired))
+    log.debug("Total Frags: {}. Is Paired: {}".format(total_count, paired))
 
     # initialize counters
     construct_counter = defaultdict(int)
@@ -623,7 +645,7 @@ def count_good_constructs_and_barcodes(bam_file_path,
     barcode_assigned = 0
     valid_constructs = 0
 
-    for read, mate in mate_pair_bam_reader(bam_file_path):
+    for read, mate in mate_pair_bam_reader(bam_file_path, paired=paired):
 
         read_count += 1
         # do some qc checks 
@@ -721,10 +743,11 @@ def count_good_constructs_and_barcodes(bam_file_path,
                     invalid_barcodes += 1
         else:
             guides_unrecoginzed += 1
-            if (guide_ed_read2<=guide_edit_threshold):
-                guides_recognized += 1
-            else:
-                guides_unrecoginzed += 1 
+            if paired:
+                if (guide_ed_read2<=guide_edit_threshold):
+                    guides_recognized += 1
+                else:
+                    guides_unrecoginzed += 1 
 
             # check the barcode
             if (barcode_distance <= barcode_edit_threshold):
@@ -734,6 +757,10 @@ def count_good_constructs_and_barcodes(bam_file_path,
             else:
                 invalid_barcodes += 1
 
+    if read_count==0:
+        pct_valid = 0
+    else:
+        pct_valid = valid_constructs/read_count * 100
 
     log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(
         valid_constructs,
@@ -764,10 +791,18 @@ def count_good_constructs_and_barcodes(bam_file_path,
         if library is not None:
             # use library to add write out extra columns
             # only write constructs we are interested in
-            header = ["construct_id",
-                        "target_a_id","probe_a_id",
-                        "target_b_id","probe_b_id",
-                        sample]
+            # TODO: this is hardcoded to two guides ... can we do singles?
+            if paired: 
+                header = ["construct_id",
+                            "target_a_id","probe_a_id",
+                            "target_b_id","probe_b_id",
+                            sample]
+            else:
+                header = ["construct_id",
+                            "target_a_id","probe_a_id",
+                            sample]
+            print(paired)     
+            print(header)
             out_line = "\t".join(header)
             handle.write("{}\n".format(out_line))
             for construct in sorted(library):

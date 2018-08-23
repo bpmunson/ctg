@@ -38,12 +38,14 @@ class Counter():
 
 
     """
-    def __init__(self, library, fastq1,
+    def __init__(self, 
+        library = None,
+        fastq1 = None,
+        fastq2=None,
         guide_5p_r1 = None,
         guide_3p_r1 = None,
         guide_5p_r2 = None,
         guide_3p_r2 = None,
-        fastq2=None,
         input_bam=None,
         barcode=None, 
         barcode_location = 175,
@@ -85,6 +87,10 @@ class Counter():
         # get directory
         self.dir = os.getcwd()
 
+        # are we paired?
+        if self.fastq2:
+            self.paired = True
+
         # make a temporary working directory 
         self.tmp_dir = os.path.join(self.dir,"ctg_tmp_{}".format(
             int(time.time())))
@@ -106,6 +112,23 @@ class Counter():
     def _check_args(self):
         """ Verify arguments pass some logic checks
         """
+        if not self.fastq1:
+            logging.error("Must provide at least one FASTQ file.")
+            raise RuntimeError()
+
+        if  ( not self.guide_5p_r1 ) | \
+            ( not self.guide_3p_r1 ):
+            logging.error("Must supply guide backbone structre: ",
+                "guide_5p_r1, guide_3p_r1")
+            raise RuntimeError()
+
+        if self.fastq2:
+            if  ( not self.guide_5p_r2 ) | \
+                ( not self.guide_3p_r2 ):
+                logging.error("Must supply guide backbone structre for read 2: ",
+                    "guide_5p_r2, guide_3p_r1.")
+                raise RuntimeError() # TODO
+
         if self.barcode:
             if (self.barcode_read == "2"):
                 if (self.fastq2 is None):
@@ -128,13 +151,7 @@ class Counter():
                                     "expected read length.")
                     raise RuntimeError()
 
-        if  ( not self.guide_5p_r1 ) | \
-            ( not self.guide_3p_r1 ) | \
-            ( not self.guide_5p_r2 ) | \
-            ( not self.guide_3p_r2 ) :
-            logging.error("Must supply guide backbone structre: ",
-                "guide_5p_r1, guide_3p_r1, guide_5p_r2, guide_3p_r1.")
-            raise RuntimeError()
+
 
     def _parse_fastq_name(self):
         """ Parse fastq name to get sample, time point, and
