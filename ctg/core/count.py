@@ -759,10 +759,11 @@ def count_good_constructs_and_barcodes(bam_file_path,
     else:
         pct_valid = valid_constructs/read_count * 100
 
+
     log.info("Found {0} passing constructs out of {1} reads. {2:.2f}%.".format(
         valid_constructs,
         read_count,
-        valid_constructs/read_count*100))
+        pct_valid))
     log.info("Writing outputs.")
 
     # finally write out counts and barcode paths
