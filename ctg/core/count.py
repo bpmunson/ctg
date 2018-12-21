@@ -89,9 +89,6 @@ def read_library_file(library, sep="\t", header=0, comment="#"):
             ld[construct_id] = vals
     return ld
 
-
-
-
 # Tagging functions
 def levenshtein_distance(observed, expected, allow_iupac=True):
     """ 
@@ -427,7 +424,7 @@ def count_good_constructs(bam_file_path,
     log = logging.getLogger()
 
     # check to make sure directory is writable
-    if not os.path.exists(os.dirname(output_counts_path)):
+    if not os.path.exists(os.path.dirname(output_counts_path)):
         log.error("Directory of output path does not exists.")
         raise RuntimeError("Bad parameters.")
  
