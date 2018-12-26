@@ -473,11 +473,17 @@ def fit_ac_fc(abundance, counts, times, method='implicit', n_reps=None, columns_
         names (dataframe): All the prefix information (see top doctsring)      
     '''
 
-    #TODO: force times to be a list or 1D numpy array ONLY
-
-    abundance, counts, names = _prep_input(abundance, counts,names=names,
-                                        t=times, n_reps=n_reps, columns_map=columns_map, method=method, col=col,
-                                        min_counts_threshold=min_counts_threshold,)
+    abundance, counts, names = _prep_input(
+        abundance, 
+        counts,
+        names=names,
+        t=times, 
+        n_reps=n_reps,
+        columns_map=columns_map,
+        method=method, 
+        col=col,
+        min_counts_threshold=min_counts_threshold,
+    )
 
     counts = _validate_counts(counts)
 
