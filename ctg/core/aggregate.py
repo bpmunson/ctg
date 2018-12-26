@@ -34,7 +34,7 @@ def aggregate_counts(counts_files,
         if len(sample_names)!=len(counts_files):
             logging.error("Number of sample names is not the same length as ",
                 "the number of counts files.")
-            raise RunTimeError("")
+            raise RuntimeError("")
 
     # read in all counts files
     counts_df = [pd.read_csv(file, sep=sep, header=header, comment=comment) 
@@ -42,8 +42,11 @@ def aggregate_counts(counts_files,
 
     # overwrite the sample names if provided
     if sample_names:
-        for i in range(counts_df):
-            counts_df[i].columns[sample_pos] = sample_names[i]
+        for i, df in enumerate(counts_df):
+            #counts_df[i].columns[sample_pos] = sample_names[i]
+            new_columns = df.columns.tolist()
+            new_columns[sample_pos] = sample_names[i]
+            df.columns = new_columns
     else:
         # check sample names are all different
         sample_names_from_files = [df.columns[sample_pos] for df in counts_df]
