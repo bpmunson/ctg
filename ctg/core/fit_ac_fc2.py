@@ -7,9 +7,7 @@ import pandas as pd
 from scipy.stats import t
 
 from ctg.core.config import config
-#import config
 import ctg.core.calculate_abundance as calculate_abundance
-#import calculate_abundance
 
 # import warnings
 # from pandas.core.common import SettingWithCopyWarning
@@ -28,6 +26,7 @@ In addition, reps are defined to be the first set of levels in the loading funct
 
 '''
 
+#TODO: Convert this to NamedTuple
 class masker(object):
     '''Object to generate and contain the mask needed to separate the good and bad counts.
 
@@ -37,12 +36,16 @@ class masker(object):
         min_good_tpts (int, optional): minimum of number of good timepoints to be considered "good"
 
     '''
-    def __init__(self, counts, abundance, min_good_tpts=2): 
+    def __init__(self, counts, abundance, indexes, min_good_tpts=2): 
         self.mask = counts > abundance
-        self.bad = self.mask.sum(axis=2) < min_good_tpts
+
+        self.bad = [self.mask[:, index].sum(axis=1) < min_good_tpts for index in indexes]
+        self.bad = np.vstack(self.bad)
+
         self.allbad = self.bad.all(axis=0)
 
-        self.mask[self.bad] = False
+        for i, index in enumerate(indexes): 
+            self.mask[:, index][self.bad[i]] = False
 
 
 def ma_cov(x,y, axis=0):
@@ -59,7 +62,7 @@ class Counts(object):
         mask=None,
         names=None, 
         col=5,
-        min_good_tpts=0,
+        min_good_tpts=2,
     ): 
         
         self.data = dataframe
@@ -67,13 +70,13 @@ class Counts(object):
         self.min_good_tpts = min_good_tpts
 
         #Separating names and timepoint data
-        if names is not None: 
+        if names is None: 
             self.names = dataframe.iloc[:, :col]
             self.data = dataframe.iloc[:, col:]
         else: 
             self.names = names
         
-        self._sanitize_names()
+        #self._sanitize_names()
         self._parse_header()
 
 
@@ -151,6 +154,7 @@ class Counts(object):
         y = np.log2(good_data/abundance)
 
         self.data = y
+        self.good_names = good_names
 
         if hasattr(self, "abundance_threshold"): 
             self.abundance_threshold = pd.Series(
@@ -164,23 +168,23 @@ class Counts(object):
         for i in self.data.columns: 
             arr = i.split('_') 
 
-            if len(arr) != 2 or arr[1][0] != "T": 
+            if len(arr) != 3 or arr[1][0] != "T": 
                 raise ValueError("Column headers are expected to be in the form {NAME}_T{DAYS}_{REP}")
             
-            container.append((arr[2], int(arr[1][1:]))) # (Rep, Timepoint)
+            container.append((int(arr[2]), int(arr[1][1:]))) # (Rep, Timepoint)
 
         reps = set([i[0] for i in container])
         if reps != set(range(1, len(reps) + 1)): 
             raise ValueError("Expect reps to be integers starting from 1.")
 
         self.n_reps = len(reps) 
-        self.timepoints = [[] for _ in self.n_reps]
-        indexes = [[] for _ in self.n_reps]
+        self.timepoints = [[] for _ in range(self.n_reps)]
+        indexes = [[] for _ in range(self.n_reps)]
 
         for ind, tup in enumerate(container): 
             i,j = tup
-            indexes[i - 1] = ind
-            self.timepoints[i - 1] = j
+            indexes[i - 1].append(ind)
+            self.timepoints[i - 1].append(j)
 
         self.data_indexes = indexes
 
@@ -194,20 +198,25 @@ class Counts(object):
 
         if abundance_thresholds is None: 
             self.abundance_thresholds = calculate_abundance.calculate_abundance(
-                _tps, 
+                self.data.values, 
                 min_counts_threshold=min_counts_threshold
             )
 
         else: 
-            if set(self.data.columns.tolist()) != (abundance_thresholds.index.tolist()): 
+            if set(self.data.columns.tolist()) != set(abundance_thresholds.index.tolist()): 
                 raise ValueError("Expected abundance threhsolds to have index the same as the data column.")
             
-            self.abundance_threshold = abundance_thresholds
+            self.abundance_threshold = abundance_thresholds.T
 
+        return self 
+
+
+    def add_mask(self):
         # Add abundance threshold as a mask 
         self.mask = masker(
             self.data.values, 
-            self.abundance_threshold, 
+            self.abundance_threshold.values, 
+            self.data_indexes, 
             self.min_good_tpts
         )
 
@@ -219,13 +228,20 @@ class Counts(object):
 
         fitnesses = []
         var_times = []
+        times_list = []
+
         mean_time_list = []
         mean_counts_list = []
+
         for index, times in zip(self.data_indexes, self.timepoints):     
             counts = self.data.iloc[:, index].values
+            mask = ~self.mask.mask[:, index]
 
-            counts_masked = np.ma.array(data=counts, mask=~self.mask.mask)
-            time_masked = np.ma.array(data=times, mask=~self.mask.mask)
+            times = repmat(times, counts.shape[0], 1)
+            times_list.append(times)
+
+            counts_masked = np.ma.array(data=counts, mask=mask)
+            time_masked = np.ma.array(data=times, mask=mask)
 
             #Collapsing across timepoints
             mean_counts = np.ma.mean(counts_masked, axis=1).data
@@ -240,25 +256,40 @@ class Counts(object):
             fitnesses.append(f)
 
         #Collapsing across replicates 
-        self.fitness = np.divide(np.sum(fitnesses), np.sum(var_times))
+        #TODO: mask the divide so you can supress the warning
+        self.fitness = np.divide(np.sum(fitnesses, axis=0), np.sum(var_times, axis=0))
         self.fitness[self.mask.allbad] = 0
 
-        #TODO:THIS PART NEEDS ATTENTION. INCONSISTENT DEFINITION OF AC (There
-        #should be two of them?)
+        self.f = fitnesses
+        self.var_times = var_times 
 
         acs = []
         xfits = []
+
+        rep = 0
         for mean_counts, mean_time in zip(mean_time_list, mean_counts_list): 
             ac = mean_counts - (self.fitness*mean_time)
-            ac[mask.bad] = counts[mask.bad,0]
+            ac[self.mask.bad[rep]] = counts[self.mask.bad[rep], 0] #Take the first count
 
-            alpha = -np.log2(np.power(2,ac).sum(axis=1))[...,np.newaxis]
+            alpha = -np.log2(np.power(2,ac).sum())
             ac = ac + alpha
         
-            lmbda = -np.log2(np.power(2, ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times).sum(axis=1))
-            xfit = ac[...,np.newaxis] + fc[np.newaxis,...,np.newaxis]*times + lmbda[...,np.newaxis]
+            lmbda = -np.log2(
+                np.power(
+                    2, 
+                    ac[..., np.newaxis] + self.fitness[..., np.newaxis]*times[rep]
+                ).sum()
+            )
+            xfit = ac[...,np.newaxis] + self.fitness[...,np.newaxis]*times[rep] + lmbda
         
+            acs.append(ac)
             xfits.append(xfit)
+
+            rep += 1
+
+        self.acs = acs
+        self.xfits = xfits
+        self.times_list = times_list
 
         return self
 
@@ -266,15 +297,19 @@ class Counts(object):
     def  estimate_pvalue(self): 
         """Estimate p-value"""
 
-        if not hasattr(self, "construct_fitness"): 
+        if not hasattr(self, "fitness"): 
             raise RuntimeError("Please calculate construct fitness first using calculate_construct_fitness")
     
-        counts_masked_2d = np.ma.array(data=np.hstack(counts), mask=~np.hstack(mask.mask))
-        xfit_masked_2d = np.ma.array(data=np.hstack(xfit), mask=~np.hstack(mask.mask))
-        time_masked_2d = np.ma.array(data=np.hstack(times), mask=~np.hstack(mask.mask))
+        mask = ~self.mask.mask
+
+        counts_masked_2d = np.ma.array(data=self.data.values, mask=mask)
+        xfit_masked_2d = np.ma.array(data=np.hstack(self.xfits), mask=mask)
+        time_masked_2d = np.ma.array(data=np.hstack(self.times_list), mask=mask)
         
-        df = mask.mask.sum(axis=2).sum(axis=0) - 2
-        df[mask.allbad] = 0
+        #Degrees of freedom
+        #df = mask.mask.sum(axis=2).sum(axis=0) - 2 #Hard-coded (2?)
+        df = self.mask.mask.sum(axis=1) - 2
+        df[self.mask.allbad] = 0
 
         n = xfit_masked_2d - counts_masked_2d
         num = np.sqrt(np.power(n,2).sum(axis=1))
@@ -284,7 +319,7 @@ class Counts(object):
 
         #NOTE: Hardcode
         sdfc = np.divide(num, denom).data
-        sdfc[mask.allbad] = 0.1
+        sdfc[self.mask.allbad] = 0.1
 
         has_sd = df > 0
         median_sd = np.median(sdfc[has_sd])
@@ -292,16 +327,23 @@ class Counts(object):
 
         df_masked = np.ma.array(data=df, mask=~(df > 0))
 
-        tstat_masked = np.ma.divide(fc, np.ma.divide(sdfc, np.ma.sqrt(df_masked)))
+        tstat_masked = np.ma.divide(self.fitness, np.ma.divide(sdfc, np.ma.sqrt(df_masked)))
         tstat_masked.data[tstat_masked.mask] = 1
 
         tstat = tstat_masked.data
         p_t = np.array([2*t.cdf(-abs(i),j) if j > 0 else 1 for i,j in zip(tstat, df)])
         
-        return sdfc, p_t
+        self.sdfc = sdfc 
+        self.p_t = p_t 
+
+        return self 
 
     
-    def fit_ac_fc(self): 
-        self.add_abundance_threshold()
+    def fit_ac_fc(self, abundance_df): 
+        self.add_abundance_threshold(abundance_df)
+        self._sanitize_names()
+        self.add_mask() 
         self.calculate_construct_fitness()
         self.estimate_pvalue()
+
+        return self.acs, self.fitness, self.mask.allbad, self.sdfc, self.p_t, self.good_names
