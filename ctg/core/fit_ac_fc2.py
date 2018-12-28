@@ -1,5 +1,6 @@
 import os
 import sys
+from collections import namedtuple
 
 import numpy as np
 from numpy.matlib import repmat
@@ -26,32 +27,12 @@ In addition, reps are defined to be the first set of levels in the loading funct
 
 '''
 
-#TODO: Convert this to NamedTuple
-class masker(object):
-    '''Object to generate and contain the mask needed to separate the good and bad counts.
-
-    Args: 
-        counts (numpy array): counts for each constructs
-        abundance (numpy array): abundance threshold for counts (needs to be broadcastable with counts)
-        min_good_tpts (int, optional): minimum of number of good timepoints to be considered "good"
-
-    '''
-    def __init__(self, counts, abundance, indexes, min_good_tpts=2): 
-        self.mask = counts > abundance
-
-        self.bad = [self.mask[:, index].sum(axis=1) < min_good_tpts for index in indexes]
-        self.bad = np.vstack(self.bad)
-
-        self.allbad = self.bad.all(axis=0)
-
-        for i, index in enumerate(indexes): 
-            self.mask[:, index][self.bad[i]] = False
-
 
 def ma_cov(x,y, axis=0):
     """Calculates the covariance from masked numpy arrays"""
 
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
+
 
 class Counts(object): 
     """Counts object to contain information related to the counts"""
@@ -76,7 +57,6 @@ class Counts(object):
         else: 
             self.names = names
         
-        #self._sanitize_names()
         self._parse_header()
 
 
@@ -100,52 +80,15 @@ class Counts(object):
             col=col,
         )
 
+
     def _sanitize_names(self): 
         """Leftover compliance from previous pipeline"""
+
         if self.names is None: 
             raise RuntimeError("Cannot sanitize without providing names!") 
 
         good = ~(self.names['target_a_id'] == self.names['target_b_id'])
         good_names = self.names.loc[good]
-
-        """
-        #I think chunk of code is useless 
-        
-        cpA = good_names['probe_a_id']
-        cpB = good_names['probe_b_id']
-
-        pswitch = cpA > cpB
-        phold = cpA.loc[pswitch]
-        cpA.loc[pswitch] = cpB.loc[pswitch]
-        cpB.loc[pswitch] = phold
-
-        probes = pd.concat([cpA, cpB]).unique()
-        probes.sort()
-        nprobes = len(probes)
-
-        cgA = good_names['target_a_id']
-        cgB = good_names['target_b_id']
-
-        genes = pd.concat([cgA, cgB]).unique()
-        genes.sort()
-
-        gswitch = cgA > cgB
-        ghold = cgA.loc[gswitch]
-
-        # had to remove the copy to ensure probes and target names matches
-        cgA_c = cgA
-        cgB_c = cgB 
-
-
-        cgA_c.loc[gswitch] = cgB.loc[gswitch]
-        cgB_c.loc[gswitch] = ghold
-
-        cgA = cgA_c
-        cgB = cgB_c
-
-        gA_gB = cgA.str.cat(cgB, sep='_')
-        pA_pB = cpA.str.cat(cpB, sep='_')
-        """
 
         #Log Transforming counts
         good_data = self.data.loc[good]
@@ -162,8 +105,10 @@ class Counts(object):
                 index=abundance.index
             )
 
+
     def _parse_header(self): 
         """Extract number of replicates and timepoints from header"""
+
         container = []
         for i in self.data.columns: 
             arr = i.split('_') 
@@ -189,6 +134,29 @@ class Counts(object):
         self.data_indexes = indexes
 
 
+    def add_mask(self): 
+        """Creates a mask for which timepoints did not meet abundance threshold""" 
+
+        if not hasattr(self, "abundance_threshold"): 
+            raise ValueError("Cannot create mask without abundance threshold!")
+
+        Masker = namedtuple("Masker", ["mask", "bad", "allbad"])
+
+        mask = self.data.values > self.abundance_threshold.values
+
+        bad = [mask[:, index].sum(axis=1) < self.min_good_tpts \
+            for index in self.data_indexes
+        ]
+
+        bad = np.vstack(bad)
+        allbad = bad.all(axis=0)
+
+        for i, index in enumerate(self.data_indexes): 
+            mask[:, index][bad[i]] = False
+
+        self.mask = Masker(mask, bad, allbad)
+
+
     def add_abundance_threshold(
         self, 
         abundance_thresholds=None, 
@@ -209,18 +177,6 @@ class Counts(object):
             self.abundance_threshold = abundance_thresholds.T
 
         return self 
-
-
-    def add_mask(self):
-        # Add abundance threshold as a mask 
-        self.mask = masker(
-            self.data.values, 
-            self.abundance_threshold.values, 
-            self.data_indexes, 
-            self.min_good_tpts
-        )
-
-        return self
 
 
     def calculate_construct_fitness(self): 
@@ -340,6 +296,8 @@ class Counts(object):
 
     
     def fit_ac_fc(self, abundance_df): 
+        """Wrapper method to run the entire pipeline""" 
+        
         self.add_abundance_threshold(abundance_df)
         self._sanitize_names()
         self.add_mask() 
