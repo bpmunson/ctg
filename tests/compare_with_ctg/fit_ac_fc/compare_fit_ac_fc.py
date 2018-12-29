@@ -5,7 +5,8 @@ import os
 import sys
 sys.path.insert(0, "../../../ctg/core")
 
-from fit_ac_fc import *
+#from fit_ac_fc import *
+from fit_ac_fc2 import Counts
 from config import config
 
 abundance_file = os.path.join(config.A549_test, "A549_abundance_thresholds.txt")
@@ -119,6 +120,16 @@ if __name__ == "__main__":
         # _compare_xfit()
         # _compare_mask()
 
+    def fit_ac_fc(abundance_file, counts_file, times): 
+        if isinstance(counts_file, str): 
+            c = Counts.from_file(counts_file)
+            c.fit_ac_fc(pd.read_csv(abundance_file, sep='\t', index_col=0))
+
+        else: 
+            c = Counts(counts_file)
+            c.fit_ac_fc(pd.read_csv(abundance_file, sep='\t', index_col=0))
+
+        return c.ac, c.fitness, c.mask.allbad, c.sdfc, c.p_t, c.names
 
     global ac, fc, allbad, sdfc, p_t, names
 
@@ -128,12 +139,12 @@ if __name__ == "__main__":
 
     print('Passed file inputs (implicit)')
 
-    #Testing files input
-    ac, fc, allbad, sdfc, p_t, names = fit_ac_fc(abundance_file, counts_file, times, method='explicit', 
-                                                    n_reps=2, 
-                                                    columns_map=[[0,1],[2,3],[4,5],[6,7]])
-    test_suite()    
-    print('Paseed file inputs (explicit)')
+    # #Testing files input
+    # ac, fc, allbad, sdfc, p_t, names = fit_ac_fc(abundance_file, counts_file, times, method='explicit', 
+    #                                                 n_reps=2, 
+    #                                                 columns_map=[[0,1],[2,3],[4,5],[6,7]])
+    # test_suite()    
+    # print('Paseed file inputs (explicit)')
 
     #Testing dataframe input
     counts_df = pd.read_csv(counts_file, sep='\s+')
@@ -143,10 +154,10 @@ if __name__ == "__main__":
     print('Passed dataframe input (implicit)')
 
     #Testing explicit method
-    ac, fc, allbad, sdfc, p_t, names = fit_ac_fc(abundance_file, counts_df, times, method='explicit', 
-                                                    n_reps=2, 
-                                                    columns_map=[[0,1],[2,3],[4,5],[6,7]])
-    test_suite()
-    print('Passed dataframe input (explicit')
+    # ac, fc, allbad, sdfc, p_t, names = fit_ac_fc(abundance_file, counts_df, times, method='explicit', 
+    #                                                 n_reps=2, 
+    #                                                 columns_map=[[0,1],[2,3],[4,5],[6,7]])
+    # test_suite()
+    # print('Passed dataframe input (explicit')
 
     #TODO: Test changing the column order

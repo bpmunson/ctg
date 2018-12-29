@@ -1,6 +1,7 @@
 import os
 import sys
 from collections import namedtuple
+from itertools import product
 
 import numpy as np
 from numpy.matlib import repmat
@@ -99,9 +100,9 @@ class Counts(object):
         self.data = y
         self.good_names = good_names
 
-        if hasattr(self, "abundance_threshold"): 
-            self.abundance_threshold = pd.Series(
-                self.abundance_threshold.values.ravel() - np.log2(abundance.values), 
+        if hasattr(self, "abundance_thresholds"): 
+            self.abundance_thresholds = pd.Series(
+                self.abundance_thresholds.values.ravel() - np.log2(abundance.values), 
                 index=abundance.index
             )
 
@@ -137,12 +138,12 @@ class Counts(object):
     def add_mask(self): 
         """Creates a mask for which timepoints did not meet abundance threshold""" 
 
-        if not hasattr(self, "abundance_threshold"): 
+        if not hasattr(self, "abundance_thresholds"): 
             raise ValueError("Cannot create mask without abundance threshold!")
 
         Masker = namedtuple("Masker", ["mask", "bad", "allbad"])
 
-        mask = self.data.values > self.abundance_threshold.values
+        mask = self.data.values > self.abundance_thresholds.values
 
         bad = [mask[:, index].sum(axis=1) < self.min_good_tpts \
             for index in self.data_indexes
@@ -152,12 +153,13 @@ class Counts(object):
         allbad = bad.all(axis=0)
 
         for i, index in enumerate(self.data_indexes): 
-            mask[:, index][bad[i]] = False
+            a,b = list(zip(*(product(np.argwhere(bad[i]), index))))
+            mask[a,b] = False
 
         self.mask = Masker(mask, bad, allbad)
 
 
-    def add_abundance_threshold(
+    def add_abundance_thresholds(
         self, 
         abundance_thresholds=None, 
         min_counts_threshold=10
@@ -166,7 +168,7 @@ class Counts(object):
 
         if abundance_thresholds is None: 
             self.abundance_thresholds = calculate_abundance.calculate_abundance(
-                self.data.values, 
+                self.data, 
                 min_counts_threshold=min_counts_threshold
             )
 
@@ -174,7 +176,7 @@ class Counts(object):
             if set(self.data.columns.tolist()) != set(abundance_thresholds.index.tolist()): 
                 raise ValueError("Expected abundance threhsolds to have index the same as the data column.")
             
-            self.abundance_threshold = abundance_thresholds.T
+            self.abundance_thresholds = abundance_thresholds.T
 
         return self 
 
@@ -216,36 +218,37 @@ class Counts(object):
         self.fitness = np.divide(np.sum(fitnesses, axis=0), np.sum(var_times, axis=0))
         self.fitness[self.mask.allbad] = 0
 
-        self.f = fitnesses
-        self.var_times = var_times 
-
-        acs = []
-        xfits = []
-
-        rep = 0
-        for mean_counts, mean_time in zip(mean_time_list, mean_counts_list): 
-            ac = mean_counts - (self.fitness*mean_time)
-            ac[self.mask.bad[rep]] = counts[self.mask.bad[rep], 0] #Take the first count
-
-            alpha = -np.log2(np.power(2,ac).sum())
-            ac = ac + alpha
+        mean_counts = np.vstack(mean_counts_list) 
+        mean_time = np.vstack(mean_time_list) 
+        first_counts = np.vstack([self.data.iloc[:, index[0]].values for index in self.data_indexes])
         
-            lmbda = -np.log2(
-                np.power(
-                    2, 
-                    ac[..., np.newaxis] + self.fitness[..., np.newaxis]*times[rep]
-                ).sum()
-            )
-            xfit = ac[...,np.newaxis] + self.fitness[...,np.newaxis]*times[rep] + lmbda
-        
-            acs.append(ac)
-            xfits.append(xfit)
+        ac = mean_counts - (self.fitness*mean_time)
 
-            rep += 1
+        ac[self.mask.bad] = first_counts[self.mask.bad]
 
-        self.acs = acs
-        self.xfits = xfits
+        alpha = -np.log2(np.power(2,ac).sum(axis=1))[...,np.newaxis]
+        ac = ac + alpha
+
+        self.ac = ac
         self.times_list = times_list
+
+        ac_rep = np.hstack([
+            repmat(ac[ind][..., np.newaxis], 1, len(index)) for ind, index in enumerate(self.data_indexes)
+        ])
+
+        lmbda = -np.log2(
+            np.power(2, 
+                ac_rep + \
+                self.fitness[..., np.newaxis]*np.hstack(self.timepoints)[np.newaxis,...]
+            ).sum(axis=0)
+        )
+
+        xfit = ac_rep + \
+            self.fitness[..., np.newaxis]*np.hstack(self.timepoints)[np.newaxis,...] + \
+            lmbda[np.newaxis, ...]
+
+        self.xfits = xfit
+        self.lmbda = lmbda
 
         return self
 
@@ -256,10 +259,13 @@ class Counts(object):
         if not hasattr(self, "fitness"): 
             raise RuntimeError("Please calculate construct fitness first using calculate_construct_fitness")
     
-        mask = ~self.mask.mask
+        mask = ~np.hstack([self.mask.mask[:, index] for index in self.data_indexes])
 
-        counts_masked_2d = np.ma.array(data=self.data.values, mask=mask)
-        xfit_masked_2d = np.ma.array(data=np.hstack(self.xfits), mask=mask)
+        counts_masked_2d = np.ma.array(
+            data=np.hstack([self.data.values[:, index] for index in self.data_indexes]),  
+            mask=mask
+        )
+        xfit_masked_2d = np.ma.array(data=self.xfits, mask=mask)
         time_masked_2d = np.ma.array(data=np.hstack(self.times_list), mask=mask)
         
         #Degrees of freedom
@@ -295,13 +301,21 @@ class Counts(object):
         return self 
 
     
-    def fit_ac_fc(self, abundance_df): 
+    def fit_ac_fc(self, abundance_df=None): 
         """Wrapper method to run the entire pipeline""" 
-        
-        self.add_abundance_threshold(abundance_df)
+
+        self.add_abundance_thresholds(abundance_df)
         self._sanitize_names()
         self.add_mask() 
         self.calculate_construct_fitness()
         self.estimate_pvalue()
 
-        return self.acs, self.fitness, self.mask.allbad, self.sdfc, self.p_t, self.good_names
+        return (self.ac, 
+            self.fitness, 
+            self.mask.allbad, 
+            self.sdfc, 
+            self.p_t, 
+            self.good_names, 
+            self.xfits, 
+            self.lmbda
+        )
