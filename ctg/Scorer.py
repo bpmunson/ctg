@@ -107,9 +107,9 @@ class Scorer(object):
         logging.info("Calculating construct fitnesses.")
         # parse the times argument if provide
         ac, fc, allbad, sdfc, p_t, names = fit_ac_fc.fit_ac_fc(
-            self.abundance_file,
             self.timepoint_counts_file,
-            self.times,
+            self.abundance_file,
+            #self.times,
             min_good_tpts = self.min_time_points,
             min_counts_threshold = self.min_counts_threshold)
 

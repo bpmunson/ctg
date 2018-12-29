@@ -34,6 +34,22 @@ def ma_cov(x,y, axis=0):
 
     return np.ma.mean(x*y, axis=axis) - (np.ma.mean(x, axis=axis)*np.ma.mean(y, axis=axis))
 
+def fit_ac_fc(counts, abundance=None, min_good_tpts=2, min_counts_threshold=10): 
+    """Wrapper for the ctg api""" 
+
+    if isinstance(counts, str): 
+        c = Counts.from_file(counts) 
+
+    else: 
+        c = Counts(counts)
+
+    c.min_good_tpts = min_good_tpts
+
+    return c.fit_ac_fc(
+        abundance, 
+        min_counts_threshold=min_counts_threshold
+    )
+
 
 class Counts(object): 
     """Counts object to contain information related to the counts"""
@@ -301,10 +317,14 @@ class Counts(object):
         return self 
 
     
-    def fit_ac_fc(self, abundance_df=None): 
+    def fit_ac_fc(self, abundance_df=None, min_counts_threshold=10): 
         """Wrapper method to run the entire pipeline""" 
 
-        self.add_abundance_thresholds(abundance_df)
+        self.add_abundance_thresholds(
+            abundance_df, 
+            min_counts_threshold=min_counts_threshold
+        )
+
         self._sanitize_names()
         self.add_mask() 
         self.calculate_construct_fitness()
