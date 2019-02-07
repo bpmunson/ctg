@@ -217,7 +217,9 @@ def extract_subsequence(read, start = 30, end = 50, count_ed=False):
             extract (bool): True to return observed guide
         Return:
             guide_edit_distance (int) - number of one-nucleotide edits needed to transform the guide string into reference
-            
+        
+        TODO: 
+            gracefully error if a guide was not observed
     """
     # check if the read is rev_comp, if so the start and ends are calculated from the end of the rea
     ap = read.get_aligned_pairs(with_seq=True)
@@ -230,7 +232,22 @@ def extract_subsequence(read, start = 30, end = 50, count_ed=False):
     while True:
         # get pair
 
-        p = ap[i]
+        if i==len(ap):
+            # never saw the end of the guide
+            # so add the rest as deletions
+            #logging.error(read.qname)
+            if count_ed:
+                mismatches[2] += end - start - sum(mismatches)  - matches
+            break
+
+        try:
+            p = ap[i]
+        except IndexError:
+            # this should not happen .... but punt for now
+            subseq = ''
+            mismatches = (0,0,0)
+            break
+
         i+=1     
         if p[1] is None:
             if in_region:
@@ -258,13 +275,7 @@ def extract_subsequence(read, start = 30, end = 50, count_ed=False):
                         mismatches[0]+=1 # add mismatches
                     else:
                         matches += 1 # matches
-        if i==len(ap):
-            # never saw the end of the guide
-            # so add the rest as deletions
-            #logging.error(read.qname)
-            if count_ed:
-                mismatches[2] += end - start - sum(mismatches)  - matches
-            break
+
     
     if subseq == '':
         subseq = None
