@@ -20,7 +20,8 @@ warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 class Scorer(object):
 
-    def __init__(self, timepoint_counts_file, times,
+    def __init__(self, timepoint_counts_file, 
+        times=None,
         abundance_file=None,
         min_counts_threshold=10,
         min_time_points = 2,
@@ -33,7 +34,8 @@ class Scorer(object):
         niter = 2,
         testing = False,
         output = None,
-        pickle_output = None):
+        pickle_output = None,
+        threads = 1):
         """
         Initialize Scorer to compute gene based fitness estimates and gene-gene
         pi-scores from a table of time-point counts
@@ -79,6 +81,7 @@ class Scorer(object):
         self.testing = testing
         self.output = output
         self.pickle_output = pickle_output
+        self.threads = threads
 
         ###########################################
         # results
@@ -157,7 +160,7 @@ class Scorer(object):
                 "Must first need to run construct fitting.")
         
         # run irls
-        fp, eij = irls.irls(self.fc,
+        fp, eij = irls.irls(    self.fc,
                                  self.w0,
                                  ag = self.bi_weight_stds,
                                  tol = self.tol,
@@ -220,6 +223,8 @@ class Scorer(object):
         self.fitness_iter = fitness_iter
         self.results = sample.summarize(self.pi_scores_iter, self.fitness_iter)
 
+
+
     def pickle(self):
         """ Write object to a pickle.
         """
@@ -246,11 +251,37 @@ class Scorer(object):
     ###########################################################################
 
 
+    def _sparsemean(self, A,B):
+        """ Compute the mean of two matrices in a potentiall nan aware fashion
+        Args:
+            A (scipy.sparse): a matrix to use in mean calculation
+            B (scipy.sparse): a matrix to use in mean calculation     
+        Return:
+            C (scipy.sparse): mean of matrices A and B, element wise
+        Notes:    
+        """ 
+        assert A.shape == B.shape 
+        # get non zero elements of each matrix
+        An = A.nonzero()
+        Bn = B.nonzero()
+        # init a counter matrix for non zero elements
+        n = sps.csr_matrix(A.shape)
+        # tally non zero elements across both
+        n[An]+=1
+        n[Bn]+=1
+        # sum the matrix and divide by the number of nonzero elements
+        C = (A+B)/n
+        # fill nan from zero division
+        C = sps.csr_matrix(np.nan_to_num(C))
+        return C
 
-    def _make_sparse_matrix(self, probe_a, probe_b,
-        feature, return_probes=False):
-        """ The iterative least squares fitting function of single gene 
-            fitnesses
+
+    def _make_sparse_matrix(self,
+        probe_a,
+        probe_b,
+        feature,
+        return_probes=False        ):
+        """ Construct a sparse matrix of a given feature array
 
         Args:
             probe_a (list): A list of a probes corresponding to one of the 
@@ -259,6 +290,11 @@ class Scorer(object):
                 the crispr guides in a dual knockout
             feature (array): An array of features corresponding to the probe 
                 pair defined by probe_a and probe_b
+            return_probes (bool): If True, list of probes corresponding to 
+                matrix index will be returned
+            make_symmetric (bool): If True, resulting sparse matrix will be made
+                symmetric by averaging across the diagonal
+
         Returns:
             m (scipy sparse matrix): a sparse matrix with all probes by 
                 all probes, populated with the feature vector
@@ -266,8 +302,7 @@ class Scorer(object):
                 to the sparse matrix
         Raises:
         """
-        # make union of probe pairs
-        #union = sorted(set(probe_a + probe_b))
+        # make sorted list of the union of probe pairs
         union = np.unique(np.concatenate((probe_a, probe_b)))
         # enumerate and hash
         union_labels = {j:i for i,j in enumerate(union)}
@@ -278,13 +313,16 @@ class Scorer(object):
         probe_b_i = [union_labels[j] for j in probe_b]
         # construct sparse matrix
         m = sps.csr_matrix((feature, (probe_a_i, probe_b_i)), shape=(l,l))
-        # make symmetric
-        m = m + m.transpose()
+
+        m = self._sparsemean(m, m.transpose())
+
         # return sparse matrix and probes list
         if return_probes:
             return m, union
         else:
             return m
+
+
 
     def _get_initial_weights(self, allbad):
         """ Make intitial boolean weights from weather all replicates
@@ -320,5 +358,8 @@ class Scorer(object):
 
     def _check_symmetric(a, tol=1e-8):
         return np.allclose(a, a.T, atol=tol,equal_nan=True)
+
+
+
 
 
