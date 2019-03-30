@@ -66,14 +66,12 @@ def count_parser(subparser):
     count_subparser_opt_output.add_argument("--output_counts", action="store", default="/dev/stdout", help="The file to write the construct counts to." )
     count_subparser_opt_output.add_argument("--output_barcodes", action="store", default=None, help="The file to write the barcodes to." )
     count_subparser_opt_output.add_argument("--output_bam", action="store", default=None, help="The file to write the read alignments to." )
-
+    count_subparser_opt_output.add_argument("--leave_tmp", action="store_true", default=False, help="Do not clean up the tmp working directory.")
 
     count_subparser_opt.add_argument("--guide_5p_r2", action="store", required=False, type=str, help="Expected 5' end of read 2.")
     count_subparser_opt.add_argument("--guide_3p_r2", action="store", required=False, type=str, help="Expected 3' end of read 2.")
     count_subparser_opt.add_argument("-2","--fastq2", action="store", required=False, help='File with read 2 mates.  Can be gzipped.')
     count_subparser_opt.add_argument("--input_bam", action="store", default=None, help="Path to an already aligend file, skipping bowtie2 alignment.")
-
-
 
 def add_tags_parser(subparser):
     """ subparser for add tags
@@ -84,7 +82,6 @@ def add_tags_parser(subparser):
     add_tags_subparser.add_argument("--barcode_start",action="store",type=int,default=None,required=False,help="Position of barcode in read")
     add_tags_subparser.add_argument("--guide_start", action="store", type=int,help="Position of the guide in the read.")
     add_tags_subparser.add_argument("--guide_length", action="store",type=int, help="Position of the guide in the read.")
-
 
 def aggregate_parser(subparser):
     """ Add options for aggregate function
@@ -129,7 +126,7 @@ def score_parser(subparser):
     score_parser.add_argument("--null_target_id", action="store", default=None, help="Target/Gene name which corresponds to the null target")
     # input
     score_parser.add_argument("-c", "--time_point_counts", action="store", default=None, required=True, help="Path to timepoint counts file.")
-    score_parser.add_argument("-t", "--times", action="store", default=None, required=True, help="Comma separated list of timepoints to use.")
+    score_parser.add_argument("-a", "--abundance_file", action="store", default=None, required=False, help="Comma separated list of timepoints to use.")
     # output
     score_parser.add_argument("-o", "--output", action="store", default=None, help="Output results path")
     score_parser.add_argument("-p", "--pickle_output", action="store", default=None, help="Outuput a pickled object to this path.")
@@ -177,7 +174,7 @@ def counting_main(options):
             barcode_location = options.barcode_location,
             barcode_read = options.barcode_read,
             guide_edit_threshold = options.guide_edit_threshold,
-            barcode_edit_threshold=options.barcode_edit_threshold,
+            barcode_edit_threshold = options.barcode_edit_threshold,
             guide_5p_r1 = options.guide_5p_r1,
             guide_3p_r1 = options.guide_3p_r1,
             guide_5p_r2 = options.guide_5p_r2,
@@ -186,13 +183,15 @@ def counting_main(options):
             output_counts = options.output_counts,
             output_bam = options.output_bam,
             output_barcodes = options.output_barcodes,
+            leave_tmp = options.leave_tmp,
             threads= options.threads)
 
     # run pipeline
     counter.build_reference()
     counter.align_reads()
     counter.count()
-    counter.cleanup()
+    if not options.leave_tmp:
+        counter.cleanup()
     return 0
 
 def aggregate_main(options):
@@ -207,7 +206,7 @@ def scoring_main(options):
     """ Main to run the scoring pipeline
     """
 
-    scorer = Scorer(options.time_point_counts, options.times,
+    scorer = Scorer(options.time_point_counts, 
         verbose = options.verbose,
         min_time_points = options.min_time_points,
         bi_weight_stds = options.bi_weight_stds,
@@ -218,7 +217,8 @@ def scoring_main(options):
         niter = options.iterations,
         testing = options.testing,
         output = options.output,
-        pickle_output = options.pickle_output)
+        pickle_output = options.pickle_output,
+        threads = options.threads)
         #use_full_dataset_for_ranking = not options.dont_use_full_dataset_for_ranking,
 
     # run pipeline
@@ -252,7 +252,13 @@ def add_tags_main(options):
             break
 
         if not read.is_unmapped:
-            read = add_tags(read, options.guide_start, options.guide_length, options.expected_barcode, options.barcode_start, options.flag)
+            try:
+                read = add_tags(read, options.guide_start, options.guide_length, options.expected_barcode, options.barcode_start, options.flag)
+            except IndexError:
+                logging.error("Error in Read: {}".format(read.qname))
+                read = add_tags(read, flag=options.flag)
+                output.write(read)
+                exit()
         else:
             read = add_tags(read, flag=options.flag)
 

@@ -21,7 +21,6 @@ warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 class Scorer(object):
 
     def __init__(self, timepoint_counts_file, 
-        times=None,
         abundance_file=None,
         min_counts_threshold=10,
         min_time_points = 2,
@@ -42,7 +41,6 @@ class Scorer(object):
         
         Args:
             time_point_counts (str): Path to timepoint counts file.
-            times (str): Comma separated list of timepoints to use.
             testing (bool): True for testing purposes only. False otherwise.
             min_time_points (int) Minimum number of timepoints to use in 
                 fitness estimation
@@ -63,11 +61,7 @@ class Scorer(object):
         """
 
 
-        if isinstance(times, str):
-            times = np.array([int(i) for i in times.split(",")])
-
         self.timepoint_counts_file = timepoint_counts_file
-        self.times = times
         self.abundance_file = abundance_file
         self.min_counts_threshold = min_counts_threshold 
         self.min_time_points = min_time_points
@@ -112,7 +106,6 @@ class Scorer(object):
         ac, fc, allbad, sdfc, p_t, names = fit_ac_fc.fit_ac_fc(
             self.timepoint_counts_file,
             self.abundance_file,
-            #self.times,
             min_good_tpts = self.min_time_points,
             min_counts_threshold = self.min_counts_threshold)
 
