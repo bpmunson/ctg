@@ -216,6 +216,33 @@ class Scorer(object):
         self.fitness_iter = fitness_iter
         self.results = sample.summarize(self.pi_scores_iter, self.fitness_iter)
 
+    def run_sampling_multi(self):
+        """ Calculate the pi scores by iterative fitting.
+
+            Wrapper function for ctg.core.sample.run_iteration.
+        """
+        logging.info("Calculating interaction scores by iterative subsampling.")
+        pi_iter, fitness_iter = sample.run_iteration_multiprocessed(
+            self.fc,
+            self.pp,
+            self.sdfc,
+            self.w0,
+            self.probes,
+            self.targets,
+            ag = self.bi_weight_stds,
+            tol = self.tol,
+            maxiter = self.maxiter,
+            n_probes_per_target = self.n_probes_per_target,
+            null_target_id = self.null_target_id,
+            niter = self.niter,
+            testing = self.testing,
+            n_processes = self.threads
+            )
+
+        # store results 
+        self.pi_scores_iter = pi_iter
+        self.fitness_iter = fitness_iter
+        self.results = sample.summarize(self.pi_scores_iter, self.fitness_iter)
 
 
     def pickle(self):

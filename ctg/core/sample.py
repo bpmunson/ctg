@@ -13,6 +13,8 @@ import ctg.core.irls as irls
 import ctg.core.weight as weight
 from statsmodels.distributions.empirical_distribution import ECDF
 import scipy.sparse as sps
+from multiprocessing import Pool
+
 
 def summarize(pi_iter, fitness_iter, err=1e-6):
     """ Collapse the iteration level fitness estimates and pi scores into 
@@ -102,7 +104,7 @@ def subsample(fc, pp, sdfc, seed=None, use_r_random=False):
 
     noise_arr = np.array([np.random.normal(loc=0, scale=sd) if sd>0 else 0 for sd in sdfc_0.data])
     noise = sps.csr_matrix((noise_arr, sdfc_0.nonzero()), shape = sdfc_0.shape)
-
+    #print("Noise ", noise[noise.nonzero()][0,:3])
     # add noise to fc
     fc_0 = fc_0 + noise
 
@@ -191,7 +193,6 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
     counter = 0
     while counter < niter:
         counter += 1
-
         logging.info("Performing iteration: {}".format(counter))
         
         if testing:
@@ -227,6 +228,156 @@ def run_iteration(fc, pp, sdfc, w0, probes, targets,
 
     # return results of subsample
     return pi_iter, fitness_iter 
+
+
+
+
+
+
+
+
+
+
+
+class Sampler(object):
+    """
+    Object to hold data and parameters for sampling 
+    """
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def _run_iteration(self, x):
+        """ 
+        I'm a fool to do your dirty work
+        """
+        # get new random seed
+        np.random.seed()
+        if self.testing:
+            seed = x
+        else:
+            seed = None
+
+        fc_1 = subsample(   self.fc,
+                            self.pp,
+                            self.sdfc,
+                            seed = seed)
+
+        # get unweighted estimates using subsampled construct fitnesses
+        fp, eij = irls.irls(fc_1,
+                            self.w0,
+                            ag=self.ag,
+                            tol=self.tol,
+                            maxiter=self.maxiter)
+           
+        # get weighted pi scores and target fitness 
+        pi_scores, target_fitness = weight.weight_by_target(
+            eij, fp, self.w0, self.probes, self.targets,
+            n_probes_per_target = self.n_probes_per_target,
+            null_target_id = self.null_target_id,
+            pre_computed_ranks = self.ranks
+            )
+
+        # add column labels corresponding to subsample
+        pi_scores.columns = [x]
+        target_fitness.columns = [x]
+
+        return pi_scores, target_fitness
+
+def run_iteration_multiprocessed(fc, pp, sdfc, w0, probes, targets,
+    ag=2,
+    tol=1e-3, 
+    maxiter=50,
+    n_probes_per_target=2,
+    epsilon = 1e-6,
+    null_target_id="NonTargetingControl",
+    niter=2,
+    testing=False,
+    use_full_dataset_for_ranking = True,
+    n_processes = 1
+    ):
+    """
+    Calculate the pi scores by iterative fitting
+
+    Args: 
+        fc (matrix): construct fitnesses
+        pp (matrix): posterior probabilities 
+        sdfc (matrix): the standard deviation of construct fitnesses 
+        w0 (matrix): boolean matrix of good constructs
+        probes (np.array): probe names corresponding to fp/eij
+        targets (np.array): target names corresponding to probes
+        ag (int): Number of standard deviation to use in Tukey biweight
+            normalization.
+        tol (float): The error tolerance threshold which stops the iteration.
+        maxiter (int): max number of iteration to perform
+        n_probes_per_target (int): the desired number of probes to use 
+            per target in calculating the weighted mean
+        epsilon (float): min value to add to weight to ensure no zero divide
+        null_target_id (str): name of the null/scramble target (gene)
+        niter (int): number of iterations to perform
+        testing (bool): True if testing, False otherwise
+        use_full_dataset_for_ranking (bool): True if rankings should be 
+            calculated on the full construct space instead of sampled space.
+            False otherwise.
+
+    Returns:
+        pi_iter (pd.DataFrame): Target level pi-scores for each iteration
+        fitness_iter (pd.DataFrame): Target level fitness estimates for 
+            each iteration
+    """
+    if use_full_dataset_for_ranking:
+        # if we want to use the full dataset for probe rankings, calculate it 
+        # now get initial fit of probe fitnesses based on construct fitnesses
+        fp_0, eij_0 = irls.irls(fc, w0, ag=ag, tol=tol, maxiter=maxiter)
+
+        # if we want to use the full dataset for probe rankings, calculate it 
+        # now get initial fit of probe fitnesses based on construct fitnesses
+        if null_target_id:
+            # get the indicies of the null targets
+            ix = np.where( targets == null_target_id)
+            # get mean of the null probe fitnesses
+            null_mean = fp_0[ix].mean()
+            # subtract off null mean from all fitnesses
+            fp_0 = fp_0 - null_mean
+
+        # rank the probes 
+        ranks = weight.rank_probes(fp_0, targets,
+            null_target_id = null_target_id)
+    else:
+        # if we don't want to use it then simply set the ranking to None
+        ranks = None
+
+
+
+    # initializer worker object
+    sampler = Sampler(  fc=fc,
+                        pp=pp,
+                        sdfc=sdfc,
+                        w0=w0,
+                        probes=probes,
+                        targets=targets,
+                        ag=ag,
+                        tol=tol, 
+                        maxiter=maxiter,
+                        n_probes_per_target=n_probes_per_target,
+                        epsilon = epsilon,
+                        null_target_id=null_target_id,
+                        testing = False,
+                        ranks = ranks)
+
+    # initialize pool
+    p = Pool(n_processes)
+
+
+    # run in pool
+    results = p.map(sampler._run_iteration, range(niter))
+
+    # split results
+    pi_iter = pd.concat([results[i][0] for i in range(niter)],axis=1)
+    fitness_iter = pd.concat([results[i][1] for i in range(niter)],axis=1)
+
+    # return results of subsample
+    return pi_iter, fitness_iter
 
 def run_iteration_multi_condition(fcs, pps, sdfcs, w0s, probes, targets,
     ag=2,
