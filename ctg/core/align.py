@@ -164,7 +164,7 @@ def merge_fixmate(r1_bam, r2_bam, out_bam, tmp="./sort"):
     try:
         subprocess.check_output('samtools --version', shell=True)
     except OSError:
-        raise OSError('Commnad bowtie2 not found. Please install samtools.')   
+        raise OSError('Commnad samtools not found. Please install samtools.')   
     call = [    "samtools cat", r1_bam, r2_bam,
                 "| samtools sort", "-T", tmp, "-n -",
                 " | samtools fixmate -", out_bam]

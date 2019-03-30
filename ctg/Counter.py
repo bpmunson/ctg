@@ -58,6 +58,7 @@ class Counter():
         output_counts = "/dev/stdout",
         output_bam = None,
         output_barcodes = None,
+        leave_tmp = False,
         threads = 1):
 
 
@@ -212,11 +213,11 @@ class Counter():
         Creates a bowtie2 index file.
         """
         if self.aligned_bam:
-            logging.warning("An aligned bam was provided as an input, ",
-                            "negating the need to build a reference.")
+            logging.warning("An aligned bam was provided as an input, negating the need to align.")
             return 0
 
-        self.reference = os.path.join(self.tmp_dir, "guide_reference.fa")
+        self.reference_fasta_r1 = os.path.join(self.tmp_dir, "guide_reference_R1.fa")
+        self.reference_fasta_r2 = os.path.join(self.tmp_dir, "guide_reference_R2.fa")
 
         # parse library definition and write out guide refernece
         count.build_guide_reference(  self.library,
@@ -224,11 +225,15 @@ class Counter():
                                 self.guide_3p_r1,
                                 self.guide_5p_r2,
                                 self.guide_3p_r2,
-                                reference_fasta=self.reference,
+                                reference_fasta_r1=self.reference_fasta_r1,
+                                reference_fasta_r2=self.reference_fasta_r2,
                                 tmp_dir=self.tmp_dir)
 
         # run bowtie build on the reference
-        align.bowtie2_build(self.reference, self.reference, "--quiet")
+        align.bowtie2_build(self.reference_fasta_r1, self.reference_fasta_r1, "--quiet")
+
+        if self.guide_5p_r2 and self.guide_3p_r2:
+            align.bowtie2_build(self.reference_fasta_r2, self.reference_fasta_r2, "--quiet")
 
         return 0
 
@@ -265,8 +270,7 @@ class Counter():
                 aligned reads with probe assignments.
         """
         if self.aligned_bam:
-            logging.warning("An aligned bam was provided as an input, ",
-                            "negating the need to align.")
+            logging.warning("An aligned bam was provided as an input, negating the need to align.")
             return 0
 
         # align read 2
@@ -287,7 +291,7 @@ class Counter():
         # align read 1
         bam1 = os.path.join(self.tmp_dir, "tmp.r1.bam")
         ret_code = align.bowtie2_align(self.fastq1, 
-            self.reference, 
+            self.reference_fasta_r1, 
             "--quiet", 
             "--very-sensitive",
             bam=bam1,
@@ -312,7 +316,7 @@ class Counter():
             # align read 2 
             bam2 = os.path.join(self.tmp_dir, "tmp.r2.bam")
             align.bowtie2_align(self.fastq2, 
-                self.reference, 
+                self.reference_fasta_r2, 
                 "--quiet", 
                 "--very-sensitive",
                 bam=bam2,
@@ -331,11 +335,12 @@ class Counter():
                                 tmp=os.path.join(self.tmp_dir,"sort"))
             if ret_code != 0:
                 logging.error("Bowtie2 error. See trace.")
-                self.cleanup()
+                if not self.leave_tmp:
+                    self.cleanup()
                 sys.exit(ret_code)
             # remove temporary read level bams
-            os.remove(bam1)
-            os.remove(bam2)
+            #os.remove(bam1)
+            #os.remove(bam2)
 
         else:
             # if no read 2, just keep read 1 aligned bam and store path

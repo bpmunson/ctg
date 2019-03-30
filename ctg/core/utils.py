@@ -115,7 +115,7 @@ def mate_pair_bam_reader(bam_file_path, paired=True):
     else:
         method = "r"
 
-    bam = pysam.AlignmentFile(bam_file_path, method)
+    bam = pysam.AlignmentFile(bam_file_path, method, check_sq=False)
 
     while True:
         # get a read
