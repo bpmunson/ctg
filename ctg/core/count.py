@@ -335,7 +335,7 @@ def add_tags(read, guide_start=None, guide_length=None, expected_barcode=None,
 # main functionality
 def build_guide_reference(library=None,
     g_5p_r1=None, g_3p_r1=None, g_5p_r2=None, g_3p_r2=None,
-    reference_fasta_r1=None, reference_fasta_r2=None, tmp_dir = "./"):
+    reference_fasta=None, tmp_dir = "./"):
     """
     Build expected guide sequences for aligner reference.
 
@@ -382,13 +382,14 @@ def build_guide_reference(library=None,
 
     # write out 
     # check to see if an output reference file was passed
-    if reference_fasta_r1 is None:
-        reference_fasta_r1 = os.path.join(tmp_dir, 'reference_R1.fa')
+    if reference_fasta is None:
+        reference_fasta = os.path.join(tmp_dir, 'reference.fa')
 
 
-    with open(reference_fasta_r1, 'w') as handle1:
+    with open(reference_fasta, 'w') as handle:
         for probe_id in sorted(probe_a):
-            new_id = "{}".format(probe_id)
+            new_id = "{}_A".format(probe_id)
+            #new_id = "{}".format(probe_id)
             seq = list(set(probe_a[probe_id]))
             if len(seq)>1:
                 raise RuntimeError("{} {}".format(
@@ -398,26 +399,40 @@ def build_guide_reference(library=None,
             else:
                 guide_sequence = seq[0]
             ref = g_5p_r1+guide_sequence+g_3p_r1
-            handle1.write(">{}\n".format(new_id))
-            handle1.write("{}\n".format(ref.upper()))             
+            handle.write(">{}\n".format(new_id))
+            handle.write("{}\n".format(ref.upper()))      
 
-    if g_5p_r2 and probe_b:
-        if reference_fasta_r2 is None:
-            reference_fasta_r2 = os.path.join(tmp_dir, "reference_R2.fa")
-        with open(reference_fasta_r2, 'w') as handle2:
-            for probe_id in sorted(probe_b):
-                new_id = "{}".format(probe_id)
-                seq = list(set(probe_b[probe_id]))
-                if len(seq)>1:
-                    raise RuntimeError("{} {}".format(
-                        "Probe sequences are not identical for",
-                        probe
-                        ))
-                else:
-                    guide_sequence = seq[0]
-                ref = g_5p_r2+guide_sequence+g_3p_r2
-                handle2.write(">{}\n".format(new_id))
-                handle2.write("{}\n".format(ref.upper()))    
+        for probe_id in sorted(probe_b):
+            new_id = "{}_B".format(probe_id)
+            seq = list(set(probe_b[probe_id]))
+            if len(seq)>1:
+                raise RuntimeError("{} {}".format(
+                    "Probe sequences are not identical for",
+                    probe
+                    ))
+            else:
+                guide_sequence = seq[0]
+            ref = g_5p_r2+guide_sequence+g_3p_r2
+            handle.write(">{}\n".format(new_id))
+            handle.write("{}\n".format(ref.upper()))         
+
+    # if g_5p_r2 and probe_b:
+    #     if reference_fasta_r2 is None:
+    #         reference_fasta_r2 = os.path.join(tmp_dir, "reference_R2.fa")
+    #     with open(reference_fasta_r2, 'w') as handle2:
+    #         for probe_id in sorted(probe_b):
+    #             new_id = "{}".format(probe_id)
+    #             seq = list(set(probe_b[probe_id]))
+    #             if len(seq)>1:
+    #                 raise RuntimeError("{} {}".format(
+    #                     "Probe sequences are not identical for",
+    #                     probe
+    #                     ))
+    #             else:
+    #                 guide_sequence = seq[0]
+    #             ref = g_5p_r2+guide_sequence+g_3p_r2
+    #             handle2.write(">{}\n".format(new_id))
+    #             handle2.write("{}\n".format(ref.upper()))    
     return 0
 
 def count_good_constructs(bam_file_path, 

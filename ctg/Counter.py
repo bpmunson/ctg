@@ -216,8 +216,9 @@ class Counter():
             logging.warning("An aligned bam was provided as an input, negating the need to align.")
             return 0
 
-        self.reference_fasta_r1 = os.path.join(self.tmp_dir, "guide_reference_R1.fa")
-        self.reference_fasta_r2 = os.path.join(self.tmp_dir, "guide_reference_R2.fa")
+        self.reference = os.path.join(self.tmp_dir, "guide_reference.fa")
+        #self.reference_fasta_r1 = os.path.join(self.tmp_dir, "guide_reference_R1.fa")
+        #self.reference_fasta_r2 = os.path.join(self.tmp_dir, "guide_reference_R2.fa")
 
         # parse library definition and write out guide refernece
         count.build_guide_reference(  self.library,
@@ -225,15 +226,17 @@ class Counter():
                                 self.guide_3p_r1,
                                 self.guide_5p_r2,
                                 self.guide_3p_r2,
-                                reference_fasta_r1=self.reference_fasta_r1,
-                                reference_fasta_r2=self.reference_fasta_r2,
+                                reference_fasta=self.reference,
+                                # reference_fasta_r1=self.reference_fasta_r1,
+                                # reference_fasta_r2=self.reference_fasta_r2,
                                 tmp_dir=self.tmp_dir)
 
         # run bowtie build on the reference
-        align.bowtie2_build(self.reference_fasta_r1, self.reference_fasta_r1, "--quiet")
+        align.bowtie2_build(self.reference, self.reference, "--quiet")
+        # align.bowtie2_build(self.reference_fasta_r1, self.reference_fasta_r1, "--quiet")
 
-        if self.guide_5p_r2 and self.guide_3p_r2:
-            align.bowtie2_build(self.reference_fasta_r2, self.reference_fasta_r2, "--quiet")
+        # if self.guide_5p_r2 and self.guide_3p_r2:
+        #     align.bowtie2_build(self.reference_fasta_r2, self.reference_fasta_r2, "--quiet")
 
         return 0
 
@@ -291,7 +294,7 @@ class Counter():
         # align read 1
         bam1 = os.path.join(self.tmp_dir, "tmp.r1.bam")
         ret_code = align.bowtie2_align(self.fastq1, 
-            self.reference_fasta_r1, 
+            self.reference, 
             "--quiet", 
             "--very-sensitive",
             bam=bam1,
@@ -316,7 +319,7 @@ class Counter():
             # align read 2 
             bam2 = os.path.join(self.tmp_dir, "tmp.r2.bam")
             align.bowtie2_align(self.fastq2, 
-                self.reference_fasta_r2, 
+                self.reference, 
                 "--quiet", 
                 "--very-sensitive",
                 bam=bam2,
