@@ -26,7 +26,8 @@ source activate <name>
 conda update -n base -c defaults conda
 
 # Install dependencies
-conda install pandas numpy scipy pysam bowtie2 statsmodels configargparse
+conda install -c bioconda pysam bowtie2
+conda install pandas numpy scipy statsmodels configargparse
 ```
 
 # Install the CTG package
